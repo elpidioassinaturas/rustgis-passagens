@@ -207,22 +207,43 @@ fn relatorio(e: &Entrada, previstas: &[Prevista]) -> String {
         }
         None => {
             t += &format!(
-                "\nNenhuma passagem do Sentinel-2 ou do Landsat tem {LIMPO:.0}% de nuvem prevista ou menos no período da previsão.\n"
-            )
+                "\nNenhuma passagem do Sentinel-2 ou do Landsat tem {LIMPO:.0}% de nuvem prevista ou menos no período da previsão."
+            );
+            let menos = previstas
+                .iter()
+                .filter(garantida)
+                .filter(|p| p.nuvem.is_some())
+                .min_by(|a, b| a.nuvem.unwrap_or(f64::MAX).total_cmp(&b.nuvem.unwrap_or(f64::MAX)));
+            if let Some(p) = menos {
+                t += &format!(
+                    " A de menos nuvem: {} em {}, com {:.0}%.",
+                    p.satelite,
+                    tempo::curto(p.t, e.fuso),
+                    p.nuvem.unwrap_or_default()
+                );
+            }
+            t += "\n";
         }
     }
     if !e.diarios {
         t += "Os de resolução grossa que passam todo dia (MODIS, VIIRS, Sentinel-3) ficaram de fora: marque Incluir os diários para vê-los.\n";
     }
-    let mut onde: Vec<String> = Vec::new();
+    // Onde baixar, com os satélites de cada fonte.
+    let mut onde: Vec<(&str, Vec<&str>)> = Vec::new();
     for p in previstas {
-        let o = format!("{} ({})", p.gratuito.prefixo, p.gratuito.onde);
-        if !onde.contains(&o) {
-            onde.push(o);
+        let fonte = p.gratuito.onde;
+        let sat = p.gratuito.prefixo;
+        match onde.iter_mut().find(|(o, _)| *o == fonte) {
+            Some((_, sats)) if !sats.contains(&sat) => sats.push(sat),
+            Some(_) => {}
+            None => onde.push((fonte, vec![sat])),
         }
     }
     if !onde.is_empty() {
-        t += &format!("\nOnde baixar: {}.\n", onde.join("; "));
+        t += "\nOnde baixar:\n";
+        for (fonte, sats) in onde {
+            t += &format!("- {}: {fonte}\n", sats.join(", "));
+        }
     }
     t += "A nuvem prevista para mais de 5 a 7 dias é pouco confiável; as horas das passagens erram poucos segundos.";
     t

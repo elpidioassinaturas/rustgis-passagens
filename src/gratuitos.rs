@@ -56,9 +56,17 @@ pub const GRATUITOS: [Gratuito; 13] = [
     diario("NOAA 21", false, "VIIRS, 375 e 750 m", "NASA Earthdata e Worldview"),
 ];
 
+/// Os que o CelesTrak ainda rastreia, mas não fazem mais imagens.
+const FORA_DE_OPERACAO: [&str; 1] = [
+    "SENTINEL-1B", // falhou em dezembro de 2021
+];
+
 /// O satélite gratuito chamado `nome` no CelesTrak.
 pub fn de(nome: &str) -> Option<&'static Gratuito> {
     let n = nome.trim().to_uppercase();
+    if FORA_DE_OPERACAO.contains(&n.as_str()) {
+        return None;
+    }
     GRATUITOS.iter().find(|g| if g.exato { n == g.prefixo } else { n.starts_with(g.prefixo) })
 }
 
@@ -70,6 +78,7 @@ mod testes {
     fn nomes_do_celestrak() {
         assert_eq!(de("SENTINEL-2C").unwrap().resolucao, "MSI, 10 m");
         assert!(de("SENTINEL-1C").unwrap().radar);
+        assert!(de("SENTINEL-1B").is_none());
         assert_eq!(de("CBERS 4A").unwrap().prefixo, "CBERS 4A");
         assert_eq!(de("CBERS 4").unwrap().prefixo, "CBERS 4");
         assert!(de("TERRA").unwrap().diario);

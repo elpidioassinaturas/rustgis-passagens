@@ -13,9 +13,11 @@
 
 pub mod cache;
 pub mod calculo;
+pub mod gratuitos;
 pub mod imagens;
 pub mod orbita;
 pub mod perfis;
+pub mod proximas;
 pub mod tempo;
 
 // O que fala com o RustGIS só compila no wasm: fora dele (nos testes), as importações do

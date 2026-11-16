@@ -8,9 +8,11 @@ use rustgis_plugin::{Kind, Request, ToolOutput, Value, geojson, host, json};
 
 use crate::cache;
 use crate::calculo::{self, Entrada};
+use crate::gratuitos;
 use crate::imagens::{self, Imagem};
 use crate::orbita::Categoria;
 use crate::perfis::COLECOES;
+use crate::proximas::{self, Ceu};
 use crate::tempo;
 
 const PREFIXO: &str = "Passagens: ";
@@ -24,11 +26,21 @@ const STAC: &str = "https://planetarycomputer.microsoft.com/api/stac/v1";
 const CELESTRAK: [&str; 7] =
     ["GROUP=resource", "GROUP=weather", "NAME=SENTINEL-1", "NAME=CBERS", "NAME=AMAZONIA", "NAME=ICEYE", "NAME=CAPELLA"];
 
+/// As mesmas órbitas, compactadas (o formato do [`cache`]) por um workflow do repositório do
+/// plugin, que baixa do CelesTrak uma vez por dia. Assim ninguém é bloqueado pelo CelesTrak, e o
+/// GitHub deixa o app web ler o arquivo (o CelesTrak não manda CORS).
+const ORBITAS: &str = "https://raw.githubusercontent.com/elpidioassinaturas/rustgis-passagens/orbitas/orbitas.json";
+
+/// O prefixo das camadas do comando `proximas`.
+const PREFIXO_PROXIMAS: &str = "Próximas imagens: ";
+
 fn handle(req: Request) -> Result<Value, String> {
     match (req.kind, req.id.as_str()) {
         (Kind::Command, "passagens") => passagens(&req),
+        (Kind::Command, "proximas") => proximas(&req),
         (Kind::Command, "imagem") => imagem(),
         (Kind::Tool, "calcular") => calcular(&req),
+        (Kind::Tool, "proximas") => calcular_proximas(&req),
         (_, outro) => Err(format!("o Passagens não tem '{outro}'")),
     }
 }
@@ -190,9 +202,10 @@ fn passagens(req: &Request) -> Result<Value, String> {
     Ok(json!({"report": relatorio}))
 }
 
-/// Os elementos orbitais: os do cache, se têm menos de [`cache::VALIDADE`]; senão os do
-/// CelesTrak, que vão para o cache. Se o CelesTrak falha (ele bloqueia quem baixa demais), serve
-/// um cache de até [`cache::LIMITE`], com um aviso. `None`: um download ainda está chegando.
+/// Os elementos orbitais, nesta ordem: os do cache, se têm menos de [`cache::VALIDADE`]; os do
+/// arquivo do GitHub, se ele tem menos de [`cache::FRESCO`]; os do CelesTrak. Os que vieram de
+/// fora vão para o cache. Se nada responde, servem as órbitas guardadas mais novas, de até
+/// [`cache::LIMITE`], com um aviso. `None`: um download ainda está chegando.
 fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec<Value>>, String> {
     let guardado = host::call("host.settings", json!({})).ok().and_then(|c| cache::expandir(&c["gp"]));
     if let Some((els, quando)) = &guardado
@@ -201,6 +214,33 @@ fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec
     {
         return Ok(Some(els.clone()));
     }
+    let guardar = |c: &Value| {
+        if c.to_string().len() <= cache::MAXIMO {
+            let _ = host::call("host.setSettings", json!({"values": {"gp": c}}));
+        }
+    };
+    // O arquivo do GitHub.
+    let mut falhas = Vec::new();
+    let mut reservas: Vec<(Vec<Value>, f64)> = Vec::new();
+    match buscar(ORBITAS) {
+        Ok(None) => return Ok(None),
+        Ok(Some(r)) => match cache::expandir(&r["json"]) {
+            Some((els, quando)) if !els.is_empty() => {
+                if agora - quando < cache::FRESCO {
+                    guardar(&r["json"]);
+                    return Ok(Some(els));
+                }
+                falhas.push(format!("o arquivo de órbitas do GitHub tem {:.0} dias", (agora - quando) / 86_400.0));
+                reservas.push((els, quando));
+            }
+            _ => falhas.push("o arquivo de órbitas do GitHub não é deste formato".to_string()),
+        },
+        Err(e) => falhas.push(format!("GitHub: {e}")),
+    }
+    if let Some(g) = guardado {
+        reservas.push(g);
+    }
+    // O CelesTrak.
     let gp: Vec<(&str, Result<Option<Value>, String>)> =
         CELESTRAK.iter().map(|q| (*q, buscar(&format!("https://celestrak.org/NORAD/elements/gp.php?{q}&FORMAT=json")))).collect();
     if gp.iter().any(|(_, r)| matches!(r, Ok(None))) {
@@ -210,7 +250,7 @@ fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec
     // reentrado ou abandonado).
     let mut elementos: Vec<Value> = Vec::new();
     let mut vistos: Vec<u64> = Vec::new();
-    let mut falhas = Vec::new();
+    let falhas_antes = falhas.len();
     for (q, r) in gp {
         match r {
             Ok(Some(r)) => {
@@ -224,31 +264,28 @@ fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec
                 }
             }
             Ok(None) => {}
-            Err(e) => falhas.push(format!("{q}: {e}")),
+            Err(e) => falhas.push(format!("CelesTrak {q}: {e}")),
         }
     }
-    if falhas.is_empty() {
-        let c = cache::compactar(&elementos, agora);
-        if c.to_string().len() <= cache::MAXIMO {
-            let _ = host::call("host.setSettings", json!({"values": {"gp": c}}));
-        }
+    if falhas.len() == falhas_antes && !elementos.is_empty() {
+        guardar(&cache::compactar(&elementos, agora));
         return Ok(Some(elementos));
     }
-    // Faltou algum grupo: o cache inteiro, se há um recente o bastante, é melhor que metade.
-    if let Some((els, quando)) = guardado
+    // Faltou algo: as órbitas inteiras mais novas que houver são melhores que metade delas.
+    reservas.sort_by(|a, b| b.1.total_cmp(&a.1));
+    if let Some((els, quando)) = reservas.into_iter().find(|(els, _)| !els.is_empty())
         && agora - quando < cache::LIMITE
-        && !els.is_empty()
     {
         avisos.push(format!(
-            "o CelesTrak não respondeu ({}); as órbitas são as guardadas há {:.0} h",
-            falhas.join("; "),
-            (agora - quando) / 3600.0
+            "as órbitas são de {:.1} dias atrás, porque as fontes novas não responderam ({})",
+            (agora - quando) / 86_400.0,
+            falhas.join("; ")
         ));
         return Ok(Some(els));
     }
     if elementos.is_empty() {
         return Err(format!(
-            "o CelesTrak não deu nenhum satélite ({}). Ele bloqueia por algumas horas quem baixa os mesmos dados muitas vezes; tente mais tarde",
+            "nenhuma fonte de órbitas respondeu ({}). O CelesTrak bloqueia por algumas horas quem baixa os mesmos dados muitas vezes; tente mais tarde",
             falhas.join("; ")
         ));
     }
@@ -312,6 +349,126 @@ fn calcular(req: &Request) -> Result<Value, String> {
         out = out.layer(texto("camada")?, saida.camada);
     }
     Ok(out.into())
+}
+
+/// `proximas`: as próximas passagens dos satélites de imagem gratuita, com a nuvem prevista.
+fn proximas(req: &Request) -> Result<Value, String> {
+    let (lat, lon) = lugar(req)?;
+    let dias = req.f64("dias").unwrap_or(10.0).round().clamp(1.0, 16.0);
+    let diarios = req.bool("diarios").unwrap_or(false);
+    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty());
+
+    let meteo = buscar(&format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={lat:.4}&longitude={lon:.4}&current=cloud_cover&hourly=cloud_cover&forecast_days=16&timezone=auto"
+    ));
+    let photon = match nome_dado {
+        Some(_) => Ok(Some(Value::Null)),
+        None => buscar(&format!("https://photon.komoot.io/reverse?lon={lon:.5}&lat={lat:.5}&radius=20&limit=1")),
+    };
+    if matches!(meteo, Ok(None)) || matches!(photon, Ok(None)) {
+        return Ok(json!({"pending": true}));
+    }
+    let meteo = meteo?.ok_or("o Open-Meteo não respondeu")?;
+    let m = &meteo["json"];
+    let fuso = m["utc_offset_seconds"].as_f64().unwrap_or(0.0);
+    let agora = m["current"]["time"].as_str().and_then(tempo::ler).map(|t| t - fuso).ok_or("o Open-Meteo não deu a hora de agora")?;
+    // A previsão hora a hora, na hora UTC.
+    let nuvens: Vec<[f64; 2]> = m["hourly"]["time"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .zip(m["hourly"]["cloud_cover"].as_array().into_iter().flatten())
+        .filter_map(|(h, n)| Some([tempo::ler(h.as_str()?)? - fuso, n.as_f64()?]))
+        .collect();
+    let nome = match nome_dado {
+        Some(n) => n.to_string(),
+        None => nome_do_lugar(photon.ok().flatten().as_ref()).unwrap_or_else(|| format!("{lat:.4}, {lon:.4}")),
+    };
+    let mut avisos: Vec<String> = Vec::new();
+    let Some(elementos) = elementos_orbitais(agora, &mut avisos)? else {
+        return Ok(json!({"pending": true}));
+    };
+    let elementos: Vec<Value> = elementos.into_iter().filter(|e| e["OBJECT_NAME"].as_str().and_then(gratuitos::de).is_some()).collect();
+    if elementos.is_empty() {
+        return Err("as órbitas não têm nenhum dos satélites de imagem gratuita".into());
+    }
+
+    let camada = format!("{PREFIXO_PROXIMAS}{nome}");
+    let camada_lugar = format!("{PREFIXO_PROXIMAS}{nome} (lugar)");
+    remover(&[&camada, &camada_lugar])?;
+    host::run(
+        "gp.run",
+        json!({"tool": "plugin:passagens/proximas", "params": {
+            "gp": Value::Array(elementos).to_string(),
+            "nuvens": json!(nuvens).to_string(),
+            "lat": lat, "lon": lon, "inicio": agora, "fim": agora + dias * 86_400.0, "fuso": fuso,
+            "lugar": nome, "camada": camada, "camadaLugar": camada_lugar, "diarios": diarios,
+        }}),
+    )?;
+    let mut relatorio = host::features(&camada_lugar, false)
+        .ok()
+        .and_then(|fc| fc["features"][0]["properties"]["relatorio"].as_str().map(str::to_string))
+        .unwrap_or_else(|| "As passagens estão na camada.".to_string());
+    if host::layers()?.as_array().into_iter().flatten().any(|l| l["name"] == camada.as_str()) {
+        estilo_proximas(&camada);
+        relatorio += &format!(
+            "\n\nA camada {camada} tem uma linha por passagem (o traço no chão), colorida pela nuvem prevista, com a hora, a resolução e onde baixar."
+        );
+    }
+    let _ = host::run("map.goToXY", json!({"lon": lon, "lat": lat, "scale": 15_000_000}));
+    if !avisos.is_empty() {
+        relatorio += &format!("\n\nAvisos: {}", avisos.join("; "));
+    }
+    Ok(json!({"report": relatorio}))
+}
+
+/// A ferramenta `proximas`: as passagens futuras, do que o comando `proximas` buscou.
+fn calcular_proximas(req: &Request) -> Result<Value, String> {
+    let texto = |n: &str| req.str(n).ok_or_else(|| format!("falta '{n}': rode o comando Próximas imagens"));
+    let numero = |n: &str| req.f64(n).ok_or_else(|| format!("falta '{n}': rode o comando Próximas imagens"));
+    let gp: Value = serde_json::from_str(texto("gp")?).map_err(|e| format!("gp: {e}"))?;
+    let nuvens: Vec<(f64, f64)> = req
+        .str("nuvens")
+        .and_then(|n| serde_json::from_str::<Vec<[f64; 2]>>(n).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|[t, n]| (t, n))
+        .collect();
+    let (lat, lon) = (numero("lat")?, numero("lon")?);
+    let lugar = texto("lugar")?;
+    let saida = proximas::calcular(&proximas::Entrada {
+        gp: gp.as_array().map(Vec::as_slice).unwrap_or_default(),
+        lon,
+        lat,
+        t0: numero("inicio")?,
+        t1: numero("fim")?,
+        fuso: req.f64("fuso").unwrap_or(0.0),
+        nome: lugar,
+        nuvens: &nuvens,
+        diarios: req.bool("diarios").unwrap_or(false),
+    });
+    let mut out = ToolOutput::new().layer(
+        texto("camadaLugar")?,
+        geojson::collection(vec![geojson::feature(
+            geojson::point(lon, lat),
+            json!({"nome": lugar, "lat": lat, "lon": lon, "relatorio": saida.relatorio}),
+        )]),
+    );
+    if saida.passagens > 0 {
+        out = out.layer(texto("camada")?, saida.camada);
+    }
+    Ok(out.into())
+}
+
+/// As cores pela nuvem prevista.
+fn estilo_proximas(camada: &str) {
+    if host::run("layer.symbology", json!({"layer": camada, "type": "unique", "field": "ceu"})).is_err() {
+        return;
+    }
+    for c in Ceu::TODOS {
+        let _ = host::run("layer.classStyle", json!({"layer": camada, "value": c.texto(), "color": c.cor()}));
+        let _ = host::run("layer.lineStrokes", json!({"layer": camada, "value": c.texto(), "strokes": [{"width": c.largura()}]}));
+    }
 }
 
 /// Remove as camadas `nomes` que estiverem no mapa (de uma rodada anterior).

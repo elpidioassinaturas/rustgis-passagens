@@ -1,8 +1,8 @@
 {
   "id": "passagens",
   "name": "Passagens de satélites",
-  "version": "0.1.0",
-  "description": "Quais satélites passaram sobre um lugar nos últimos dias e quais imagens públicas eles fizeram dele: órbitas do CelesTrak calculadas com o SGP4, imagens do Sentinel-2, do Landsat e do Sentinel-1 no Microsoft Planetary Computer.",
+  "version": "0.2.0",
+  "description": "Quais satélites passaram sobre um lugar nos últimos dias e quais imagens públicas eles fizeram dele, e quando os satélites de imagem gratuita (Sentinel-2, Landsat, Sentinel-1, CBERS, Amazonia-1, MODIS, VIIRS) passam de novo, com a nuvem prevista. Órbitas do CelesTrak calculadas com o SGP4; imagens do Microsoft Planetary Computer.",
   "author": "Elpídio Filho",
   "homepage": "https://github.com/elpidioassinaturas/rustgis-passagens",
   "license": "MIT",
@@ -53,6 +53,47 @@
           "label": "Trazer a imagem mais recente com pouca nuvem",
           "kind": "bool",
           "default": true
+        }
+      ]
+    },
+    {
+      "id": "proximas",
+      "label": "Próximas\nimagens",
+      "help": "Quando os satélites de imagem gratuita (Sentinel-2, Landsat, Sentinel-1, CBERS, Amazonia-1 e, se pedir, MODIS, VIIRS e Sentinel-3) passam sobre um lugar nos próximos dias, com a nuvem prevista pelo Open-Meteo para a hora de cada passagem. Para planejar o campo no dia da imagem.",
+      "icon": "calendar",
+      "timeout": 120,
+      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum para o centro do mapa), \"dias\"?: 1 a 16 (padrão 10), \"nome\"?: o nome do lugar, \"diarios\"?: bool (inclui MODIS, VIIRS e Sentinel-3; padrão false)}",
+      "form": [
+        {
+          "name": "lat",
+          "label": "Latitude",
+          "kind": "number",
+          "help": "Em graus, negativa ao sul (-20.695). Vazia: o centro do mapa."
+        },
+        {
+          "name": "lon",
+          "label": "Longitude",
+          "kind": "number",
+          "help": "Em graus, negativa a oeste (-42.887). Vazia: o centro do mapa."
+        },
+        {
+          "name": "dias",
+          "label": "Dias",
+          "kind": "number",
+          "default": 10,
+          "help": "Quantos dias para a frente, de 1 a 16 (a previsão de nuvem vai até 16)."
+        },
+        {
+          "name": "nome",
+          "label": "Nome do lugar",
+          "kind": "text",
+          "help": "O nome das camadas. Vazio: o nome que o Photon (OpenStreetMap) dá ao lugar."
+        },
+        {
+          "name": "diarios",
+          "label": "Incluir os diários de resolução grossa (MODIS, VIIRS, Sentinel-3)",
+          "kind": "bool",
+          "default": false
         }
       ]
     },
@@ -143,6 +184,86 @@
           "label": "Nuvem agora",
           "kind": "number",
           "help": "Em %."
+        }
+      ]
+    },
+    {
+      "id": "proximas",
+      "name": "Calcular próximas passagens",
+      "toolbox": "Passagens de satélites",
+      "summary": "O cálculo que o comando Próximas imagens usa: as órbitas (SGP4) e a previsão de nuvem viram a camada das próximas passagens. Rode o comando, não esta ferramenta.",
+      "params": [
+        {
+          "name": "gp",
+          "label": "Elementos orbitais (JSON)",
+          "kind": "text",
+          "required": true,
+          "help": "Os elementos GP dos satélites gratuitos, em JSON, que o comando passa."
+        },
+        {
+          "name": "nuvens",
+          "label": "Previsão de nuvem (JSON)",
+          "kind": "text",
+          "help": "[[hora UTC em segundos desde 1970, %], ...]."
+        },
+        {
+          "name": "lat",
+          "label": "Latitude",
+          "kind": "number",
+          "required": true,
+          "help": "Graus."
+        },
+        {
+          "name": "lon",
+          "label": "Longitude",
+          "kind": "number",
+          "required": true,
+          "help": "Graus."
+        },
+        {
+          "name": "inicio",
+          "label": "Início",
+          "kind": "number",
+          "required": true,
+          "help": "Segundos desde 1970 (UTC)."
+        },
+        {
+          "name": "fim",
+          "label": "Fim",
+          "kind": "number",
+          "required": true,
+          "help": "Segundos desde 1970 (UTC)."
+        },
+        {
+          "name": "fuso",
+          "label": "Fuso",
+          "kind": "number",
+          "help": "Segundos à frente do UTC."
+        },
+        {
+          "name": "lugar",
+          "label": "Lugar",
+          "kind": "text",
+          "required": true,
+          "help": "O nome do lugar."
+        },
+        {
+          "name": "camada",
+          "label": "Camada",
+          "kind": "text",
+          "help": "O nome da camada de saída."
+        },
+        {
+          "name": "camadaLugar",
+          "label": "Camada do lugar",
+          "kind": "text",
+          "help": "O nome da camada do ponto, que leva o relatório."
+        },
+        {
+          "name": "diarios",
+          "label": "Incluir os diários",
+          "kind": "bool",
+          "help": "MODIS, VIIRS e Sentinel-3."
         }
       ]
     }

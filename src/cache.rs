@@ -9,12 +9,17 @@ use crate::tempo;
 /// A versão do formato.
 const VERSAO: u64 = 1;
 
-/// Por quanto tempo o cache vale sem perguntar ao CelesTrak (que atualiza os elementos ao longo
-/// do dia).
-pub const VALIDADE: f64 = 6.0 * 3600.0;
+/// Por quanto tempo o cache vale sem buscar de novo. As órbitas mudam devagar: o arquivo do
+/// GitHub é refeito uma vez por dia.
+pub const VALIDADE: f64 = 12.0 * 3600.0;
 
-/// Até quando um cache velho ainda serve, quando o CelesTrak não responde.
-pub const LIMITE: f64 = 5.0 * 86_400.0;
+/// Até que idade o arquivo de órbitas do GitHub serve sem perguntar ao CelesTrak (o workflow
+/// que o refaz pode ter parado).
+pub const FRESCO: f64 = 3.0 * 86_400.0;
+
+/// Até quando órbitas velhas ainda servem, quando nada responde: o erro do SGP4 cresce alguns km
+/// por dia, e as passagens continuam no lugar, com a hora errando alguns segundos.
+pub const LIMITE: f64 = 30.0 * 86_400.0;
 
 /// O maior cache que o plugin grava (as configurações levam 64 KB, com as chaves).
 pub const MAXIMO: usize = 63_000;

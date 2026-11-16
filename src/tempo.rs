@@ -66,6 +66,17 @@ pub fn local(t: f64, deslocamento: f64) -> String {
     format!("{ano:04}-{mes:02}-{dia:02} {:02}:{:02}", r / 3600, r % 3600 / 60)
 }
 
+/// "qui 19/11 10:02", na hora local.
+pub fn curto(t: f64, deslocamento: f64) -> String {
+    const SEMANA: [&str; 7] = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+    let s = (t + deslocamento).round() as i64;
+    let d = s.div_euclid(86_400);
+    let (_, mes, dia) = civil(d);
+    let r = s.rem_euclid(86_400);
+    // 1970-01-01 foi uma quinta.
+    format!("{} {dia:02}/{mes:02} {:02}:{:02}", SEMANA[(d + 4).rem_euclid(7) as usize], r / 3600, r % 3600 / 60)
+}
+
 /// "AAAA-MM-DD".
 pub fn dia(t: f64) -> String {
     iso(t)[..10].to_string()

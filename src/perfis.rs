@@ -58,11 +58,13 @@ pub fn perfil(nome: &str) -> Option<Perfil> {
     if comeca("LANDSAT 9") {
         return Some(Perfil { sensor: Sensor::Nadir { meia_faixa: 92.5 }, stac: Some("LC09") });
     }
+    // MODIS, 2.330 km (pelo nome inteiro: TERRASAR-X também começa com TERRA).
+    if n == "TERRA" || n == "AQUA" {
+        return Some(nadir(1165.0));
+    }
     // Faixa fixa, sem imagens no Planetary Computer.
     let tabela: &[(&str, Perfil)] = &[
         ("SENTINEL-3", nadir(635.0)),  // OLCI, 1.270 km
-        ("TERRA", nadir(1165.0)),      // MODIS, 2.330 km
-        ("AQUA", nadir(1165.0)),       // MODIS
         ("SUOMI NPP", nadir(1520.0)),  // VIIRS, 3.040 km
         ("NOAA 20", nadir(1520.0)),    // VIIRS
         ("NOAA 21", nadir(1520.0)),    // VIIRS
@@ -157,6 +159,8 @@ mod testes {
         assert_eq!(perfil("CBERS 4").unwrap().sensor, Sensor::Nadir { meia_faixa: 433.0 });
         assert_eq!(perfil("WORLDVIEW-3 (WV-3)").unwrap().sensor, Sensor::Apontavel { angulo: 45.0, radar: false });
         assert!(perfil("ISS (ZARYA)").is_none());
+        assert_eq!(perfil("TERRA").unwrap().sensor, Sensor::Nadir { meia_faixa: 1165.0 });
+        assert_eq!(perfil("TERRASAR-X").unwrap().sensor, Sensor::Apontavel { angulo: 45.0, radar: true });
         assert_eq!(satelite_do_item("S2B_MSIL2A_20261113T130249_R095_T23KQT_20261113T152136"), "S2B");
         assert_eq!(satelite_do_item("LC09_L2SP_217074_20261110_02_T1"), "LC09");
     }

@@ -1,14 +1,13 @@
 name: Demonstração
 
-# Roda o plugin de uma release num lugar e guarda os mapas como artefato:
+# Compila o plugin deste commit, roda os dois comandos num lugar e guarda os mapas e os
+# relatórios como artefato:
 #   gh workflow run demonstracao.yml -f lat=-20.695 -f lon=-42.887
-# A segunda rodada desliga o CelesTrak (no /etc/hosts): ela só funciona com as órbitas do cache.
+# A segunda rodada do Passagens desliga o CelesTrak (no /etc/hosts): ela só funciona com as
+# órbitas do cache.
 on:
   workflow_dispatch:
     inputs:
-      versao:
-        description: "A release (v0.1.0); vazia: a mais recente"
-        default: ""
       lat:
         description: Latitude
         default: "-20.695"
@@ -26,25 +25,36 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       LUGAR: '{"lat":${{ inputs.lat }},"lon":${{ inputs.lon }}}'
     steps:
-      - name: Baixar o plugin e o rustgis-cli
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Compilar o plugin e baixar o rustgis-cli
         run: |
-          gh release download ${{ inputs.versao }} --repo ${{ github.repository }} --pattern '*.rgplugin' --dir "$RUNNER_TEMP"
-          mkdir "$RUNNER_TEMP/plugin" && unzip -q "$RUNNER_TEMP"/*.rgplugin -d "$RUNNER_TEMP/plugin"
+          python scripts/package.py
           gh release download --repo opengeos/RustGIS --pattern 'RustGIS-*-linux-x86_64.tar.gz' --dir "$RUNNER_TEMP"
           tar xzf "$RUNNER_TEMP"/RustGIS-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP"
           echo "CLI=$(ls "$RUNNER_TEMP"/RustGIS-*-linux-x86_64/rustgis-cli)" >> "$GITHUB_ENV"
           mkdir mapas
-      - name: Passagens (baixa as órbitas)
+      - name: Próximas imagens
         run: |
-          "$CLI" run --no-plugins --plugin "$RUNNER_TEMP/plugin" --sample --yes \
+          "$CLI" run --no-plugins --plugin dist/passagens --sample --yes \
+            --cmd "plugin:passagens/proximas=$LUGAR" \
+            --cmd "share.exportMap={\"path\":\"$PWD/mapas/1_proximas.png\"}" | tee mapas/1_saida.txt
+      - name: Passagens (dos últimos dias)
+        run: |
+          "$CLI" run --no-plugins --plugin dist/passagens --sample --yes \
             --cmd "plugin:passagens/passagens=$LUGAR" \
-            --cmd "share.exportMap={\"path\":\"$PWD/mapas/1_passagens_e_imagem.png\"}" | tee mapas/1_saida.txt
-      - name: Passagens de novo, sem o CelesTrak (usa o cache)
+            --cmd "share.exportMap={\"path\":\"$PWD/mapas/2_passagens.png\"}" | tee mapas/2_saida.txt
+      - name: Passagens de novo, sem o CelesTrak nem o GitHub (usa o cache)
         run: |
-          echo "127.0.0.1 celestrak.org" | sudo tee -a /etc/hosts
-          "$CLI" run --no-plugins --plugin "$RUNNER_TEMP/plugin" --sample --yes \
-            --cmd "plugin:passagens/passagens={\"lat\":${{ inputs.lat }},\"lon\":${{ inputs.lon }},\"imagem\":false}" \
-            --cmd "share.exportMap={\"path\":\"$PWD/mapas/2_passagens_do_cache.png\"}" | tee mapas/2_saida.txt
+          echo "127.0.0.1 celestrak.org raw.githubusercontent.com" | sudo tee -a /etc/hosts
+          "$CLI" run --no-plugins --plugin dist/passagens --sample --yes \
+            --cmd "plugin:passagens/passagens={\"lat\":${{ inputs.lat }},\"lon\":${{ inputs.lon }},\"imagem\":false}" | tee mapas/3_saida_do_cache.txt
       - uses: actions/upload-artifact@v4
         with:
           name: mapas

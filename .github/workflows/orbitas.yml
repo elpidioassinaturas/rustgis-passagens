@@ -1,0 +1,37 @@
+name: Órbitas
+
+# Uma vez por dia, baixa as órbitas do CelesTrak e grava o arquivo que o plugin lê, no branch
+# orbitas (que guarda só a versão mais recente):
+#   https://raw.githubusercontent.com/<repo>/orbitas/orbitas.json
+# Uma consulta por dia fica dentro do que o CelesTrak permite, e os usuários do plugin não
+# precisam consultá-lo.
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: orbitas
+
+jobs:
+  orbitas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Baixar do CelesTrak
+        run: python scripts/orbitas.py "$RUNNER_TEMP/orbitas/orbitas.json"
+      - name: Publicar no branch orbitas
+        working-directory: ${{ runner.temp }}/orbitas
+        run: |
+          git init -q -b orbitas
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add orbitas.json
+          git commit -q -m "Órbitas de $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" orbitas

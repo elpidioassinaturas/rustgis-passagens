@@ -45,6 +45,12 @@ jobs:
           "$CLI" run --no-plugins --plugin dist/passagens --sample --yes \
             --cmd "plugin:passagens/proximas=$LUGAR" \
             --cmd "share.exportMap={\"path\":\"$PWD/mapas/1_proximas.png\"}" | tee mapas/1_saida.txt
+      - name: Imagens do lugar (barra de tempo)
+        run: |
+          "$CLI" run --no-plugins --plugin dist/passagens --sample --yes \
+            --cmd "plugin:passagens/imagens={\"lat\":${{ inputs.lat }},\"lon\":${{ inputs.lon }},\"dias\":90}" \
+            --cmd "share.exportMap={\"path\":\"$PWD/mapas/0_imagens.png\"}" \
+            --cmd "time.export={\"path\":\"$PWD/mapas/0_imagens.gif\"}" | tee mapas/0_saida.txt
       - name: Passagens (dos últimos dias)
         run: |
           "$CLI" run --no-plugins --plugin dist/passagens --sample --yes \

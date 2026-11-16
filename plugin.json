@@ -1,8 +1,8 @@
 {
   "id": "passagens",
   "name": "Passagens de satélites",
-  "version": "0.2.0",
-  "description": "Quais satélites passaram sobre um lugar nos últimos dias e quais imagens públicas eles fizeram dele, e quando os satélites de imagem gratuita (Sentinel-2, Landsat, Sentinel-1, CBERS, Amazonia-1, MODIS, VIIRS) passam de novo, com a nuvem prevista. Órbitas do CelesTrak calculadas com o SGP4; imagens do Microsoft Planetary Computer.",
+  "version": "0.3.0",
+  "description": "Quais satélites passaram sobre um lugar nos últimos dias e quais imagens públicas eles fizeram dele; as imagens do Sentinel-2 do lugar na barra de tempo, só as datas de céu limpo no próprio lugar; e quando os satélites de imagem gratuita passam de novo, com a nuvem prevista. Órbitas do CelesTrak calculadas com o SGP4; imagens do Microsoft Planetary Computer e do Earth Search.",
   "author": "Elpídio Filho",
   "homepage": "https://github.com/elpidioassinaturas/rustgis-passagens",
   "license": "MIT",
@@ -53,6 +53,55 @@
           "label": "Trazer a imagem mais recente com pouca nuvem",
           "kind": "bool",
           "default": true
+        }
+      ]
+    },
+    {
+      "id": "imagens",
+      "label": "Imagens\ndo lugar",
+      "help": "As imagens do Sentinel-2 de um lugar (o centro do mapa, ou a latitude e a longitude dadas) na barra de tempo, um recorte em volta dele em 10 m, só as datas com o céu limpo no próprio lugar (pela classificação da cena no pixel do lugar, não pela nuvem da cena inteira). Desktop e rustgis-cli.",
+      "icon": "history",
+      "timeout": 120,
+      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum para o centro do mapa), \"dias\"?: 5 a 365 (padrão 60), \"lado\"?: km, 1 a 20 (padrão 5), \"quantas\"?: 1 a 10 (as datas limpas mais recentes na barra; padrão 6), \"nome\"?: o nome do lugar}",
+      "form": [
+        {
+          "name": "lat",
+          "label": "Latitude",
+          "kind": "number",
+          "help": "Em graus, negativa ao sul (-20.695). Vazia: o centro do mapa."
+        },
+        {
+          "name": "lon",
+          "label": "Longitude",
+          "kind": "number",
+          "help": "Em graus, negativa a oeste (-42.887). Vazia: o centro do mapa."
+        },
+        {
+          "name": "dias",
+          "label": "Dias",
+          "kind": "number",
+          "default": 60,
+          "help": "Quantos dias para trás, de 5 a 365. O céu é conferido em até 16 datas (as mais novas)."
+        },
+        {
+          "name": "lado",
+          "label": "Lado do recorte (km)",
+          "kind": "number",
+          "default": 5,
+          "help": "De 1 a 20 km."
+        },
+        {
+          "name": "quantas",
+          "label": "Datas na barra de tempo",
+          "kind": "number",
+          "default": 6,
+          "help": "As datas de céu limpo mais recentes que entram na barra, de 1 a 10 (cada uma leva uns 8 s)."
+        },
+        {
+          "name": "nome",
+          "label": "Nome do lugar",
+          "kind": "text",
+          "help": "O nome da camada. Vazio: o nome que o Photon (OpenStreetMap) dá ao lugar."
         }
       ]
     },

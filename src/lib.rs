@@ -13,6 +13,7 @@
 
 pub mod cache;
 pub mod calculo;
+pub mod galeria;
 pub mod gratuitos;
 pub mod imagens;
 pub mod orbita;

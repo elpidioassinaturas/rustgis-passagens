@@ -8,6 +8,7 @@ use rustgis_plugin::{Kind, Request, ToolOutput, Value, geojson, host, json};
 
 use crate::cache;
 use crate::calculo::{self, Entrada};
+use crate::galeria;
 use crate::gratuitos;
 use crate::imagens::{self, Imagem};
 use crate::orbita::Categoria;
@@ -34,11 +35,20 @@ const ORBITAS: &str = "https://raw.githubusercontent.com/elpidioassinaturas/rust
 /// O prefixo das camadas do comando `proximas`.
 const PREFIXO_PROXIMAS: &str = "Próximas imagens: ";
 
+/// O prefixo do cubo do comando `imagens`.
+const PREFIXO_IMAGENS: &str = "Imagens: ";
+
+/// Quantas datas o comando `imagens` confere no pixel do lugar. Cada consulta leva 1 a 2 s, um
+/// plugin tem 60 s de consultas por chamada, e no app desktop um comando para em 120 s (cada
+/// cubo da barra de tempo leva uns 8 s).
+const CONFERIR: usize = 16;
+
 fn handle(req: Request) -> Result<Value, String> {
     match (req.kind, req.id.as_str()) {
         (Kind::Command, "passagens") => passagens(&req),
         (Kind::Command, "proximas") => proximas(&req),
         (Kind::Command, "imagem") => imagem(),
+        (Kind::Command, "imagens") => imagens_do_lugar(&req),
         (Kind::Tool, "calcular") => calcular(&req),
         (Kind::Tool, "proximas") => calcular_proximas(&req),
         (_, outro) => Err(format!("o Passagens não tem '{outro}'")),
@@ -469,6 +479,160 @@ fn estilo_proximas(camada: &str) {
         let _ = host::run("layer.classStyle", json!({"layer": camada, "value": c.texto(), "color": c.cor()}));
         let _ = host::run("layer.lineStrokes", json!({"layer": camada, "value": c.texto(), "strokes": [{"width": c.largura()}]}));
     }
+}
+
+/// `imagens`: as imagens do Sentinel-2 do lugar na barra de tempo, só as datas de céu limpo no
+/// próprio lugar.
+///
+/// O cubo vem do Earth Search (arquivos públicos na AWS, que o cubo do RustGIS lê; os do
+/// Planetary Computer têm endereços assinados que expiram). O céu de cada data vem do Planetary
+/// Computer, que diz a classe da banda SCL num ponto.
+fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
+    let (lat, lon) = lugar(req)?;
+    let dias = req.f64("dias").unwrap_or(60.0).round().clamp(5.0, 365.0);
+    let lado = req.f64("lado").unwrap_or(5.0).clamp(1.0, 20.0);
+    let quantas = req.f64("quantas").unwrap_or(6.0).round().clamp(1.0, 10.0) as usize;
+    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty());
+
+    let meteo =
+        buscar(&format!("https://api.open-meteo.com/v1/forecast?latitude={lat:.4}&longitude={lon:.4}&current=cloud_cover&timezone=auto"));
+    let photon = match nome_dado {
+        Some(_) => Ok(Some(Value::Null)),
+        None => buscar(&format!("https://photon.komoot.io/reverse?lon={lon:.5}&lat={lat:.5}&radius=20&limit=1")),
+    };
+    if matches!(meteo, Ok(None)) || matches!(photon, Ok(None)) {
+        return Ok(json!({"pending": true}));
+    }
+    let meteo = meteo?.ok_or("o Open-Meteo não respondeu")?;
+    let m = &meteo["json"];
+    let fuso = m["utc_offset_seconds"].as_f64().unwrap_or(0.0);
+    let agora =
+        m["current"]["time"].as_str().and_then(tempo::ler).map(|t| t - fuso + 15.0 * 60.0).ok_or("o Open-Meteo não deu a hora de agora")?;
+    let nome = match nome_dado {
+        Some(n) => n.to_string(),
+        None => nome_do_lugar(photon.ok().flatten().as_ref()).unwrap_or_else(|| format!("{lat:.4}, {lon:.4}")),
+    };
+    let t0 = agora - dias * 86_400.0;
+
+    // As imagens do lugar no Planetary Computer, uma por dia.
+    let r = host::run(
+        "stac.search",
+        json!({"url": STAC, "collections": ["sentinel-2-l2a"], "bbox": [lon - 0.0005, lat - 0.0005, lon + 0.0005, lat + 0.0005],
+               "datetime": format!("{}/{}", tempo::dia(t0), tempo::dia(agora)), "limit": 200, "sortby": "-datetime", "footprints": false}),
+    )?;
+    if esperando(&r) {
+        return Ok(json!({"pending": true}));
+    }
+    let imgs = galeria::uma_por_dia(imagens::ler(&r));
+    if imgs.is_empty() {
+        return Err(format!("o Planetary Computer não tem imagens do Sentinel-2 de {nome} nos últimos {dias:.0} dias"));
+    }
+
+    // O céu no pixel do lugar, das mais novas às mais velhas. No app web as consultas chegam
+    // depois: o comando roda de novo quando chegam, e as já feitas respondem de pronto.
+    let mut datas: Vec<galeria::Data> = Vec::new();
+    let mut pendentes = 0;
+    let mut consultas = 0;
+    for img in imgs {
+        let (ceu, classe) = match galeria::pela_cena(img.nuvem) {
+            Some(c) => c,
+            None if consultas >= CONFERIR => (galeria::Ceu::NaoConferido, "o limite de consultas acabou"),
+            // No app web, no máximo 8 consultas esperam por rodada.
+            None if pendentes >= 8 => {
+                pendentes += 1;
+                (galeria::Ceu::NaoConferido, "chegando")
+            }
+            None => {
+                consultas += 1;
+                let url = format!(
+                    "https://planetarycomputer.microsoft.com/api/data/v1/item/point/{lon:.6},{lat:.6}?collection=sentinel-2-l2a&item={}&assets=SCL",
+                    img.id
+                );
+                match buscar(&url) {
+                    Ok(None) => {
+                        pendentes += 1;
+                        (galeria::Ceu::NaoConferido, "chegando")
+                    }
+                    Ok(Some(p)) => p["json"]["values"][0].as_f64().map(galeria::classe_scl).unwrap_or((galeria::Ceu::SemDado, "sem dado")),
+                    Err(_) => (galeria::Ceu::NaoConferido, "a consulta falhou"),
+                }
+            }
+        };
+        datas.push(galeria::Data { imagem: img, ceu, classe });
+    }
+    if pendentes > 0 {
+        return Ok(json!({"pending": true}));
+    }
+
+    // As datas da barra de tempo: as limpas mais novas.
+    let limpas: Vec<String> = datas.iter().filter(|d| d.ceu == galeria::Ceu::Limpo).take(quantas).map(|d| tempo::dia(d.imagem.t)).collect();
+
+    // Os cubos de antes saem; os novos entram com as imagens do Earth Search.
+    let camada = format!("{PREFIXO_IMAGENS}{nome}");
+    let projeto = host::run("info.project", json!({}))?;
+    let velhas: Vec<String> = projeto["tileLayers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str())
+        .filter(|n| n.starts_with(&camada))
+        .map(str::to_string)
+        .collect();
+    for n in velhas {
+        let _ = host::run("map.removeTiles", json!({"name": n}));
+    }
+    let mut relatorio = galeria::relatorio(&nome, dias, &datas, fuso, calculo::satelite_legivel);
+    if limpas.is_empty() {
+        relatorio += "\nNenhuma das datas conferidas tem o céu limpo no lugar: rode de novo com mais dias.";
+        return Ok(json!({"report": relatorio}));
+    }
+    // Um cubo por data, com uma imagem só: a janela da barra de tempo vai de um passo ao
+    // seguinte, e um cubo com todas as datas mostraria a última dentro dela, nublada ou não. Os
+    // mais velhos entram por último, por cima, e cada passo mostra a sua data.
+    let meio = lado / 2.0 / 111.32;
+    let meio_lon = meio / lat.to_radians().cos().max(0.01);
+    let mut passos: Vec<String> = Vec::new();
+    let mut falhas: Vec<String> = Vec::new();
+    for dia in &limpas {
+        let cubo = host::run(
+            "stac.addCube",
+            json!({"collection": "sentinel-2-l2a", "asset": "visual",
+                   "bbox": [lon - meio_lon, lat - meio, lon + meio_lon, lat + meio],
+                   "start": dia, "end": dia, "name": format!("{camada} {dia}"),
+                   "attribution": "Sentinel-2 (Copernicus), Earth Search (Element 84)"}),
+        );
+        match cubo {
+            Ok(r) if esperando(&r) => return Ok(json!({"pending": true})),
+            Ok(r) if r["dates"].as_u64().unwrap_or(0) > 0 => passos.push(dia.clone()),
+            Ok(_) => falhas.push(format!("{dia}: o Earth Search não tem a imagem")),
+            Err(e) => {
+                falhas.push(format!("{dia}: {e}"));
+                // Sem cubo aqui (o app web), nenhum outro entra.
+                if passos.is_empty() {
+                    break;
+                }
+            }
+        }
+    }
+    if passos.is_empty() {
+        relatorio += &format!(
+            "\nAs imagens não entraram no mapa ({}). Elas entram como cubos na barra de tempo, que só o app desktop e o rustgis-cli fazem.",
+            falhas.join("; ")
+        );
+        return Ok(json!({"report": relatorio}));
+    }
+    passos.reverse();
+    let ultima = passos.last().cloned().unwrap_or_default();
+    host::run("time.set", json!({"dates": passos, "date": ultima, "speed": 1500, "loop": true, "format": "DD/MM/YYYY"}))?;
+    let _ = host::run("map.goToXY", json!({"lon": lon, "lat": lat, "scale": (lado * 5000.0).round()}));
+    relatorio += &format!(
+        "\nAs {} datas de céu limpo mais recentes estão na barra de tempo (View › Time), uma camada {camada} por data, e o mapa mostra agora a de {ultima}. O ▶ da barra passa as datas uma a uma; Exportar animação (time.export) faz um GIF.",
+        passos.len()
+    );
+    if !falhas.is_empty() {
+        relatorio += &format!("\nFicaram de fora: {}.", falhas.join("; "));
+    }
+    Ok(json!({"report": relatorio}))
 }
 
 /// Remove as camadas `nomes` que estiverem no mapa (de uma rodada anterior).

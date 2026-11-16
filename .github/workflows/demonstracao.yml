@@ -1,0 +1,51 @@
+name: Demonstração
+
+# Roda o plugin de uma release num lugar e guarda os mapas como artefato:
+#   gh workflow run demonstracao.yml -f lat=-20.695 -f lon=-42.887
+# A segunda rodada desliga o CelesTrak (no /etc/hosts): ela só funciona com as órbitas do cache.
+on:
+  workflow_dispatch:
+    inputs:
+      versao:
+        description: "A release (v0.1.0); vazia: a mais recente"
+        default: ""
+      lat:
+        description: Latitude
+        default: "-20.695"
+      lon:
+        description: Longitude
+        default: "-42.887"
+
+permissions:
+  contents: read
+
+jobs:
+  demonstracao:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      LUGAR: '{"lat":${{ inputs.lat }},"lon":${{ inputs.lon }}}'
+    steps:
+      - name: Baixar o plugin e o rustgis-cli
+        run: |
+          gh release download ${{ inputs.versao }} --repo ${{ github.repository }} --pattern '*.rgplugin' --dir "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/plugin" && unzip -q "$RUNNER_TEMP"/*.rgplugin -d "$RUNNER_TEMP/plugin"
+          gh release download --repo opengeos/RustGIS --pattern 'RustGIS-*-linux-x86_64.tar.gz' --dir "$RUNNER_TEMP"
+          tar xzf "$RUNNER_TEMP"/RustGIS-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP"
+          echo "CLI=$(ls "$RUNNER_TEMP"/RustGIS-*-linux-x86_64/rustgis-cli)" >> "$GITHUB_ENV"
+          mkdir mapas
+      - name: Passagens (baixa as órbitas)
+        run: |
+          "$CLI" run --no-plugins --plugin "$RUNNER_TEMP/plugin" --sample --yes \
+            --cmd "plugin:passagens/passagens=$LUGAR" \
+            --cmd "share.exportMap={\"path\":\"$PWD/mapas/1_passagens_e_imagem.png\"}" | tee mapas/1_saida.txt
+      - name: Passagens de novo, sem o CelesTrak (usa o cache)
+        run: |
+          echo "127.0.0.1 celestrak.org" | sudo tee -a /etc/hosts
+          "$CLI" run --no-plugins --plugin "$RUNNER_TEMP/plugin" --sample --yes \
+            --cmd "plugin:passagens/passagens={\"lat\":${{ inputs.lat }},\"lon\":${{ inputs.lon }},\"imagem\":false}" \
+            --cmd "share.exportMap={\"path\":\"$PWD/mapas/2_passagens_do_cache.png\"}" | tee mapas/2_saida.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mapas
+          path: mapas/

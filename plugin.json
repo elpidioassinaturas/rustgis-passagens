@@ -1,7 +1,7 @@
 {
   "id": "passagens",
   "name": "Passagens de satélites",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Os satélites de imagem gratuita (Sentinel-1, 2 e 3, Landsat, CBERS, Amazonia-1, MODIS, VIIRS) sobre um lugar clicado no mapa: as passagens dos últimos dias e as imagens públicas que elas fizeram, as imagens de céu limpo na barra de tempo, e as próximas passagens com a nuvem prevista. Órbitas do CelesTrak com o SGP4; imagens do Planetary Computer e do Earth Search.",
   "author": "Elpídio Filho",
   "homepage": "https://github.com/elpidioassinaturas/rustgis-passagens",

@@ -279,8 +279,9 @@ fn passagens(req: &Request) -> Result<Value, String> {
     remover(&[&camada, &camada_lugar])?;
     let imgs_json: Vec<Value> =
         imgs.iter().map(|i| json!({"id": i.id, "colecao": i.colecao, "t": i.t, "nuvem": i.nuvem, "url": i.url})).collect();
-    host::run(
-        "gp.run",
+    rodar_ferramenta(
+        lon,
+        lat,
         json!({"tool": "plugin:passagens/calcular", "params": {
             "gp": Value::Array(elementos).to_string(),
             "imagens": Value::Array(imgs_json).to_string(),
@@ -528,8 +529,9 @@ fn proximas(req: &Request) -> Result<Value, String> {
     let camada = format!("{PREFIXO_PROXIMAS}{nome}");
     let camada_lugar = format!("{PREFIXO_PROXIMAS}{nome} (lugar)");
     remover(&[&camada, &camada_lugar])?;
-    host::run(
-        "gp.run",
+    rodar_ferramenta(
+        lon,
+        lat,
         json!({"tool": "plugin:passagens/proximas", "params": {
             "gp": Value::Array(elementos).to_string(),
             "nuvens": json!(nuvens).to_string(),
@@ -756,6 +758,26 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
         relatorio += &format!("\nFicaram de fora: {}.", falhas.join("; "));
     }
     Ok(json!({"report": relatorio}))
+}
+
+/// A camada provisória que o mapa vazio ganha enquanto uma ferramenta roda.
+const PROVISORIA: &str = "Passagens: calculando";
+
+/// Roda uma ferramenta do plugin pelo `gp.run`. O RustGIS não roda ferramentas num mapa sem
+/// camadas (um projeto novo): ele ganha, enquanto isso, uma camada com o ponto do lugar.
+fn rodar_ferramenta(lon: f64, lat: f64, pedido: Value) -> Result<Value, String> {
+    let vazio = host::layers()?.as_array().is_none_or(|a| a.is_empty());
+    if vazio {
+        host::call(
+            "host.addLayer",
+            json!({"name": PROVISORIA, "geojson": geojson::collection(vec![geojson::feature(geojson::point(lon, lat), json!({}))])}),
+        )?;
+    }
+    let r = host::run("gp.run", pedido);
+    if vazio {
+        let _ = remover(&[PROVISORIA]);
+    }
+    r
 }
 
 /// Remove as camadas `nomes` que estiverem no mapa (de uma rodada anterior).

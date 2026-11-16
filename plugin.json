@@ -1,7 +1,7 @@
 {
   "id": "passagens",
   "name": "Passagens de satélites",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Os satélites de imagem gratuita (Sentinel-1, 2 e 3, Landsat, CBERS, Amazonia-1, MODIS, VIIRS) sobre um lugar clicado no mapa: as passagens dos últimos dias e as imagens públicas que elas fizeram, as imagens de céu limpo na barra de tempo, e as próximas passagens com a nuvem prevista. Órbitas do CelesTrak com o SGP4; imagens do Planetary Computer e do Earth Search.",
   "author": "Elpídio Filho",
   "homepage": "https://github.com/elpidioassinaturas/rustgis-passagens",
@@ -21,19 +21,13 @@
       "help": "As passagens dos satélites de imagem gratuita que viram um lugar nos últimos dias (o clicado no painel, o centro do mapa, ou a latitude e a longitude dadas), cada uma como o traço no chão: fotografou (a imagem está no Planetary Computer) ou provavelmente fotografou (a faixa da câmera cobriu o lugar; a imagem pode estar no INPE, na NASA ou no Copernicus). Traz para o mapa a imagem mais recente com pouca nuvem.",
       "icon": "locate",
       "timeout": 120,
-      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 1 a 14 (padrão 7), \"nome\"?: o nome do lugar (padrão: o do Photon), \"imagem\"?: bool (traz a imagem mais recente com pouca nuvem; padrão true)}",
+      "params": "{\"municipio\"?: nome (\"Ubaporanga\", \"Viçosa/MG\") ou código do IBGE, ou \"lat\" e \"lon\" em graus (nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 1 a 14 (padrão 7), \"nome\"?: o nome do lugar (padrão: o do Photon), \"imagem\"?: bool (traz a imagem mais recente com pouca nuvem; padrão true)}",
       "form": [
         {
-          "name": "lat",
-          "label": "Latitude",
-          "kind": "number",
-          "help": "Em graus, negativa ao sul (-20.695). Vazia: o lugar escolhido no painel, ou o centro do mapa."
-        },
-        {
-          "name": "lon",
-          "label": "Longitude",
-          "kind": "number",
-          "help": "Em graus, negativa a oeste (-42.887). Vazia: o lugar escolhido no painel, ou o centro do mapa."
+          "name": "municipio",
+          "label": "Município",
+          "kind": "text",
+          "help": "O nome, como Ubaporanga ou Viçosa/MG (com a UF quando o nome se repete), ou o código do IBGE. Vazio: o último lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "dias",
@@ -62,19 +56,13 @@
       "help": "As imagens do Sentinel-2 de um lugar (o centro do mapa, ou a latitude e a longitude dadas) na barra de tempo, um recorte em volta dele em 10 m, só as datas com o céu limpo no próprio lugar (pela classificação da cena no pixel do lugar, não pela nuvem da cena inteira). Desktop e rustgis-cli.",
       "icon": "history",
       "timeout": 120,
-      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 5 a 365 (padrão 60), \"lado\"?: km, 1 a 20 (padrão 5), \"quantas\"?: 1 a 10 (as datas limpas mais recentes na barra; padrão 6), \"nome\"?: o nome do lugar}",
+      "params": "{\"municipio\"?: nome (\"Ubaporanga\", \"Viçosa/MG\") ou código do IBGE, ou \"lat\" e \"lon\" em graus (nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 5 a 365 (padrão 60), \"lado\"?: km, 1 a 20 (padrão 5), \"quantas\"?: 1 a 10 (as datas limpas mais recentes na barra; padrão 6), \"nome\"?: o nome do lugar}",
       "form": [
         {
-          "name": "lat",
-          "label": "Latitude",
-          "kind": "number",
-          "help": "Em graus, negativa ao sul (-20.695). Vazia: o lugar escolhido no painel, ou o centro do mapa."
-        },
-        {
-          "name": "lon",
-          "label": "Longitude",
-          "kind": "number",
-          "help": "Em graus, negativa a oeste (-42.887). Vazia: o lugar escolhido no painel, ou o centro do mapa."
+          "name": "municipio",
+          "label": "Município",
+          "kind": "text",
+          "help": "O nome, como Ubaporanga ou Viçosa/MG (com a UF quando o nome se repete), ou o código do IBGE. Vazio: o último lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "dias",
@@ -111,19 +99,13 @@
       "help": "Quando os satélites de imagem gratuita (Sentinel-2, Landsat, Sentinel-1, CBERS, Amazonia-1 e, se pedir, MODIS, VIIRS e Sentinel-3) passam sobre um lugar nos próximos dias, com a nuvem prevista pelo Open-Meteo para a hora de cada passagem. Para planejar o campo no dia da imagem.",
       "icon": "calendar",
       "timeout": 120,
-      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 1 a 16 (padrão 10), \"nome\"?: o nome do lugar, \"diarios\"?: bool (inclui MODIS, VIIRS e Sentinel-3; padrão false)}",
+      "params": "{\"municipio\"?: nome (\"Ubaporanga\", \"Viçosa/MG\") ou código do IBGE, ou \"lat\" e \"lon\" em graus (nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 1 a 16 (padrão 10), \"nome\"?: o nome do lugar, \"diarios\"?: bool (inclui MODIS, VIIRS e Sentinel-3; padrão false)}",
       "form": [
         {
-          "name": "lat",
-          "label": "Latitude",
-          "kind": "number",
-          "help": "Em graus, negativa ao sul (-20.695). Vazia: o lugar escolhido no painel, ou o centro do mapa."
-        },
-        {
-          "name": "lon",
-          "label": "Longitude",
-          "kind": "number",
-          "help": "Em graus, negativa a oeste (-42.887). Vazia: o lugar escolhido no painel, ou o centro do mapa."
+          "name": "municipio",
+          "label": "Município",
+          "kind": "text",
+          "help": "O nome, como Ubaporanga ou Viçosa/MG (com a UF quando o nome se repete), ou o código do IBGE. Vazio: o último lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "dias",
@@ -183,6 +165,13 @@
       "icon": "locate",
       "timeout": 120,
       "params": "{} (o lugar do painel)"
+    },
+    {
+      "id": "estado",
+      "label": "Estado\ndo painel",
+      "help": "A lista dos municípios e o lugar escolhido, quando o painel abre.",
+      "icon": "locate",
+      "params": "{}"
     }
   ],
   "tools": [
@@ -351,12 +340,20 @@
   "panel": {
     "title": "Satélites sobre um lugar",
     "icon": "locate",
-    "help": "Clique no mapa para escolher o lugar e veja as imagens de satélite gratuitas dele.",
+    "help": "Escolha o município (ou clique no mapa) e veja as imagens de satélite gratuitas dele.",
     "items": [
+      {
+        "kind": "tree",
+        "id": "municipio",
+        "label": "Município",
+        "search": true,
+        "command": "marcar",
+        "help": "Digite parte do nome na busca e escolha o município na lista."
+      },
       {
         "kind": "pick",
         "id": "lugar",
-        "label": "Escolher o lugar no mapa",
+        "label": "Ou clicar no mapa",
         "command": "marcar",
         "help": "Clique aqui e depois no mapa."
       },
@@ -364,7 +361,7 @@
         "kind": "text",
         "id": "onde",
         "label": "Lugar",
-        "text": "Nenhum lugar escolhido: clique em Escolher o lugar no mapa e depois no mapa."
+        "text": "Nenhum lugar escolhido: busque o município na lista, ou clique em Ou clicar no mapa e depois no mapa."
       },
       {
         "kind": "button",
@@ -390,6 +387,7 @@
         "label": "Resultado",
         "text": "Escolha um lugar no mapa."
       }
-    ]
+    ],
+    "state": "estado"
   }
 }

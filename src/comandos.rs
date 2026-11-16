@@ -11,6 +11,7 @@ use crate::calculo::{self, Entrada};
 use crate::galeria;
 use crate::gratuitos;
 use crate::imagens::{self, Imagem};
+use crate::municipios;
 use crate::orbita::Categoria;
 use crate::perfis::COLECOES;
 use crate::proximas::{self, Ceu};
@@ -51,6 +52,7 @@ fn handle(req: Request) -> Result<Value, String> {
         (Kind::Command, "imagens") => imagens_do_lugar(&req),
         // O painel: o clique no mapa e os botões, que rodam sem formulário.
         (Kind::Command, "marcar") => marcar(&req),
+        (Kind::Command, "estado") => estado(),
         (Kind::Command, "ver-passagens") => no_painel(passagens(&req)),
         (Kind::Command, "ver-imagens") => no_painel(imagens_do_lugar(&req)),
         (Kind::Command, "ver-proximas") => no_painel(proximas(&req)),
@@ -76,49 +78,120 @@ fn esperando(r: &Value) -> bool {
     r.get("pending").and_then(Value::as_bool) == Some(true) || r.get("downloading").is_some()
 }
 
-/// O lugar clicado no mapa pelo painel (o pick `lugar`), se há um.
-fn lugar_do_painel(req: &Request) -> Option<(f64, f64)> {
-    let p = req.panel.get("lugar")?;
-    Some((p["lat"].as_f64()?, p["lon"].as_f64()?))
+/// Um lugar escolhido: o município, ou um ponto clicado no mapa.
+struct Lugar {
+    lat: f64,
+    lon: f64,
+    /// O nome das camadas (o município), quando se sabe.
+    nome: Option<String>,
+    /// O código do IBGE, quando é um município.
+    codigo: Option<String>,
 }
 
-/// O lugar: `lat` e `lon` dos parâmetros; senão o clicado no painel; senão o centro do mapa.
-fn lugar(req: &Request) -> Result<(f64, f64), String> {
+impl Lugar {
+    fn de_municipio(m: &municipios::Municipio) -> Lugar {
+        Lugar { lat: m.lat, lon: m.lon, nome: Some(m.nome.to_string()), codigo: Some(m.codigo.to_string()) }
+    }
+
+    /// O texto do painel.
+    fn texto(&self) -> String {
+        let municipio = self.codigo.as_deref().and_then(municipios::por_codigo).map(|m| format!("{}\n", m.rotulo()));
+        let nome = municipio.or_else(|| self.nome.as_ref().map(|n| format!("{n}\n"))).unwrap_or_default();
+        format!("{nome}{:.5}, {:.5}", self.lat, self.lon)
+    }
+}
+
+/// O lugar guardado nas configurações do plugin (o último escolhido no painel).
+fn lugar_guardado() -> Option<Lugar> {
+    let s = host::call("host.settings", json!({})).ok()?;
+    let l = &s["lugar"];
+    Some(Lugar {
+        lat: l["lat"].as_f64()?,
+        lon: l["lon"].as_f64()?,
+        nome: l["nome"].as_str().map(str::to_string),
+        codigo: l["codigo"].as_str().map(str::to_string),
+    })
+}
+
+fn guardar_lugar(l: &Lugar) {
+    let _ = host::call("host.setSettings", json!({"values": {"lugar": {"lat": l.lat, "lon": l.lon, "nome": l.nome, "codigo": l.codigo}}}));
+}
+
+/// O lugar, nesta ordem: `lat` e `lon` dos parâmetros; o `municipio` dos parâmetros (o nome, como
+/// "Ubaporanga" ou "Viçosa/MG", ou o código do IBGE); o último escolhido no painel; o centro do
+/// mapa.
+fn lugar(req: &Request) -> Result<Lugar, String> {
     match (req.f64("lat"), req.f64("lon")) {
         (Some(lat), Some(lon)) => {
             if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
                 return Err(format!("{lat}, {lon} não é uma latitude e longitude"));
             }
-            Ok((lat, lon))
+            return Ok(Lugar { lat, lon, nome: None, codigo: None });
         }
-        (None, None) if lugar_do_painel(req).is_some() => lugar_do_painel(req).ok_or_else(String::new),
-        (None, None) => {
-            let v = host::view()?;
-            let c = &v["center"];
-            match (c[1].as_f64(), c[0].as_f64()) {
-                (Some(lat), Some(lon)) => Ok((lat, lon)),
-                _ => Err("o centro do mapa não é conhecido: dê lat e lon".into()),
-            }
-        }
-        _ => Err("dê lat e lon juntas (ou nenhuma, para o centro do mapa)".into()),
+        (None, None) => {}
+        _ => return Err("dê lat e lon juntas (ou nenhuma)".into()),
+    }
+    if let Some(texto) = req.str("municipio").map(str::trim).filter(|t| !t.is_empty()) {
+        let m = municipios::buscar(texto)?;
+        let l = Lugar::de_municipio(&m);
+        guardar_lugar(&l);
+        return Ok(l);
+    }
+    if let Some(l) = lugar_guardado() {
+        return Ok(l);
+    }
+    let v = host::view()?;
+    let c = &v["center"];
+    match (c[1].as_f64(), c[0].as_f64()) {
+        (Some(lat), Some(lon)) => Ok(Lugar { lat, lon, nome: None, codigo: None }),
+        _ => Err("escolha um município ou um lugar no mapa".into()),
     }
 }
 
-/// `marcar`: o lugar clicado no mapa pelo painel, com o nome que o Photon dá a ele.
+/// O estado do painel quando ele abre: a lista dos municípios e o lugar escolhido.
+fn estado() -> Result<Value, String> {
+    let guardado = lugar_guardado();
+    let mut r = json!({"panel": {"items": {"municipio": {"nodes": municipios::arvore()}}}});
+    if let Some(l) = &guardado {
+        r["panel"]["items"]["onde"] = json!({"text": l.texto()});
+        if let Some(c) = &l.codigo {
+            r["panel"]["values"] = json!({"municipio": c});
+        }
+    }
+    Ok(r)
+}
+
+/// `marcar`: o município escolhido na lista do painel, ou o lugar clicado no mapa (com o nome que
+/// o Photon dá a ele). Fica guardado para os botões e os formulários.
 fn marcar(req: &Request) -> Result<Value, String> {
-    let Some((lat, lon)) = lugar_do_painel(req) else {
-        return Ok(json!({"panel": {"items": {"onde": {"text": "Nenhum lugar escolhido: clique em Escolher no mapa e depois no mapa."}}}}));
+    let escolhido = req.panel_str("municipio").and_then(municipios::por_codigo);
+    let clicado = req.panel.get("lugar").and_then(|p| Some((p["lat"].as_f64()?, p["lon"].as_f64()?)));
+    let l = match (escolhido, clicado) {
+        (Some(m), _) if req.changed("municipio") || clicado.is_none() => Lugar::de_municipio(&m),
+        (_, Some((lat, lon))) => {
+            let photon = match buscar(&format!("https://photon.komoot.io/reverse?lon={lon:.5}&lat={lat:.5}&radius=20&limit=1")) {
+                Ok(None) => return Ok(json!({"pending": true})),
+                Ok(Some(r)) => Some(r),
+                Err(_) => None,
+            };
+            Lugar { lat, lon, nome: nome_do_lugar(photon.as_ref()), codigo: None }
+        }
+        _ => {
+            return Ok(
+                json!({"panel": {"items": {"onde": {"text": "Nenhum lugar escolhido: busque o município na lista, ou clique em Escolher no mapa e depois no mapa."}}}}),
+            );
+        }
     };
-    let photon = match buscar(&format!("https://photon.komoot.io/reverse?lon={lon:.5}&lat={lat:.5}&radius=20&limit=1")) {
-        Ok(None) => return Ok(json!({"pending": true})),
-        Ok(Some(r)) => Some(r),
-        Err(_) => None,
-    };
-    let nome = nome_do_lugar(photon.as_ref()).map(|n| format!("{n}\n")).unwrap_or_default();
-    Ok(json!({"panel": {"items": {
-        "onde": {"text": format!("{nome}{lat:.5}, {lon:.5}")},
-        "resultado": {"text": "Escolha o que ver: os botões acima rodam para este lugar."},
-    }}}))
+    guardar_lugar(&l);
+    let mut r = json!({"panel": {"items": {
+        "onde": {"text": l.texto()},
+        "resultado": {"text": "Escolha o que ver: os botões rodam para este lugar."},
+    }}});
+    // O clique no mapa desfaz a escolha da lista.
+    if l.codigo.is_none() {
+        r["panel"]["values"] = json!({"municipio": null});
+    }
+    Ok(r)
 }
 
 /// A resposta de um comando com o relatório também no painel (que mostra até 4.000 caracteres).
@@ -145,10 +218,11 @@ fn nome_do_lugar(resposta: Option<&Value>) -> Option<String> {
 
 /// `passagens`: os satélites que passaram sobre o lugar nos últimos dias.
 fn passagens(req: &Request) -> Result<Value, String> {
-    let (lat, lon) = lugar(req)?;
+    let local = lugar(req)?;
+    let (lat, lon) = (local.lat, local.lon);
     let dias = req.f64("dias").unwrap_or(7.0).round().clamp(1.0, 14.0);
     let trazer_imagem = req.bool("imagem").unwrap_or(true);
-    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty());
+    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty()).or(local.nome.as_deref());
 
     // Tudo da web primeiro: no app web, os pedidos que ainda não chegaram saem juntos, e o
     // comando roda de novo quando eles chegam.
@@ -410,10 +484,11 @@ fn calcular(req: &Request) -> Result<Value, String> {
 
 /// `proximas`: as próximas passagens dos satélites de imagem gratuita, com a nuvem prevista.
 fn proximas(req: &Request) -> Result<Value, String> {
-    let (lat, lon) = lugar(req)?;
+    let local = lugar(req)?;
+    let (lat, lon) = (local.lat, local.lon);
     let dias = req.f64("dias").unwrap_or(10.0).round().clamp(1.0, 16.0);
     let diarios = req.bool("diarios").unwrap_or(false);
-    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty());
+    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty()).or(local.nome.as_deref());
 
     let meteo = buscar(&format!(
         "https://api.open-meteo.com/v1/forecast?latitude={lat:.4}&longitude={lon:.4}&current=cloud_cover&hourly=cloud_cover&forecast_days=16&timezone=auto"
@@ -535,11 +610,12 @@ fn estilo_proximas(camada: &str) {
 /// Planetary Computer têm endereços assinados que expiram). O céu de cada data vem do Planetary
 /// Computer, que diz a classe da banda SCL num ponto.
 fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
-    let (lat, lon) = lugar(req)?;
+    let local = lugar(req)?;
+    let (lat, lon) = (local.lat, local.lon);
     let dias = req.f64("dias").unwrap_or(60.0).round().clamp(5.0, 365.0);
     let lado = req.f64("lado").unwrap_or(5.0).clamp(1.0, 20.0);
     let quantas = req.f64("quantas").unwrap_or(6.0).round().clamp(1.0, 10.0) as usize;
-    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty());
+    let nome_dado = req.str("nome").map(str::trim).filter(|n| !n.is_empty()).or(local.nome.as_deref());
 
     let meteo =
         buscar(&format!("https://api.open-meteo.com/v1/forecast?latitude={lat:.4}&longitude={lon:.4}&current=cloud_cover&timezone=auto"));

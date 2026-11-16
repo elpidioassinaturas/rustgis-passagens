@@ -10,8 +10,9 @@ Inspirado no [watched.earth](https://www.watched.earth).
 Na aba **Plugins**, o primeiro botão do grupo **Passagens de satélites**, **Satélites sobre um
 lugar**, abre o painel:
 
-1. **Escolher o lugar no mapa**, e um clique no mapa. O painel mostra o nome do lugar e as
-   coordenadas.
+1. O lugar: o **Município**, digitando parte do nome na busca da lista (as UFs, cada uma com os
+   seus municípios) e escolhendo-o; ou **Ou clicar no mapa** e um clique no mapa. O painel mostra
+   o nome e as coordenadas, e o lugar fica guardado.
 2. Um dos botões, que rodam para esse lugar sem perguntar nada:
    - **Imagens limpas:** as imagens de céu limpo do Sentinel-2 dos últimos 60 dias na barra de
      tempo;
@@ -20,8 +21,11 @@ lugar**, abre o painel:
 3. O resultado aparece no painel, e as camadas no mapa.
 
 Os botões **Passagens de satélites**, **Imagens do lugar** e **Próximas imagens** do grupo são os
-mesmos comandos com um formulário (dias, tamanho do recorte, nome do lugar, latitude e longitude). Com a latitude e a longitude vazias, eles usam o
-lugar escolhido no painel, ou o centro do mapa.
+mesmos comandos com um formulário (município, dias, tamanho do recorte). O **Município** é o nome
+(`Ubaporanga`, ou `Viçosa/MG` quando o nome se repete) ou o código do IBGE; vazio, vale o último
+lugar escolhido no painel, ou o centro do mapa. Os municípios (com a sede de cada um) vão dentro do
+plugin: `src/municipios.csv`, gerado por `scripts/municipios.py` a partir do
+[kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros) (MIT).
 
 ## Comandos
 

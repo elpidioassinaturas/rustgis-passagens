@@ -226,7 +226,8 @@ fn relatorio(e: &Entrada, previstas: &[Prevista]) -> String {
         }
     }
     if !e.diarios {
-        t += "Os de resolução grossa que passam todo dia (MODIS, VIIRS, Sentinel-3) ficaram de fora: marque Incluir os diários para vê-los.\n";
+        // O painel não tem a opção: só o formulário do comando Próximas imagens, na faixa.
+        t += "Os de resolução grossa que passam todo dia (MODIS, VIIRS, Sentinel-3) ficaram de fora: para vê-los, rode Próximas imagens na aba Plugins com Incluir os diários de resolução grossa marcado.\n";
     }
     // Onde baixar, com os satélites de cada fonte.
     let mut onde: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -300,5 +301,7 @@ mod testes {
         assert_eq!(perto["properties"]["ceu"], "céu limpo");
         assert!(perto["properties"]["quando"].as_str().unwrap().starts_with("seg 23/11 10:0"), "{}", perto["properties"]["quando"]);
         assert!(s.relatorio.contains("A próxima imagem limpa provável: SENTINEL-2B"), "{}", s.relatorio);
+        // A opção dos diários só existe no formulário do comando, não no painel.
+        assert!(s.relatorio.contains("rode Próximas imagens na aba Plugins com Incluir os diários"), "{}", s.relatorio);
     }
 }

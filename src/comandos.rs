@@ -12,6 +12,7 @@ use crate::galeria;
 use crate::gratuitos;
 use crate::imagens::{self, Imagem};
 use crate::municipios;
+use crate::nomes;
 use crate::orbita::Categoria;
 use crate::perfis::COLECOES;
 use crate::proximas::{self, Ceu};
@@ -120,6 +121,10 @@ fn guardar_lugar(l: &Lugar) {
 /// O lugar, nesta ordem: `lat` e `lon` dos parâmetros; o `municipio` dos parâmetros (o nome, como
 /// "Ubaporanga" ou "Viçosa/MG", ou o código do IBGE); o último escolhido no painel; o centro do
 /// mapa.
+///
+/// Só o painel guarda o lugar ([`marcar`]): um formulário que desse um município e o guardasse
+/// mudaria o lugar dos botões sem mudar o que o painel mostra (o painel diria Viçosa e os botões
+/// rodariam para Ubaporanga).
 fn lugar(req: &Request) -> Result<Lugar, String> {
     match (req.f64("lat"), req.f64("lon")) {
         (Some(lat), Some(lon)) => {
@@ -133,9 +138,7 @@ fn lugar(req: &Request) -> Result<Lugar, String> {
     }
     if let Some(texto) = req.str("municipio").map(str::trim).filter(|t| !t.is_empty()) {
         let m = municipios::buscar(texto)?;
-        let l = Lugar::de_municipio(&m);
-        guardar_lugar(&l);
-        return Ok(l);
+        return Ok(Lugar::de_municipio(&m));
     }
     if let Some(l) = lugar_guardado() {
         return Ok(l);
@@ -195,10 +198,17 @@ fn marcar(req: &Request) -> Result<Value, String> {
 }
 
 /// A resposta de um comando com o relatório também no painel (que mostra até 4.000 caracteres).
+///
+/// Um erro também vai para o painel, e por isso o comando responde como se desse certo: o RustGIS
+/// não muda o painel quando um comando falha, e o painel ficaria com o resultado anterior. Para
+/// o erro não passar por sucesso, ele vai também para a barra de status, como erro.
 fn no_painel(r: Result<Value, String>) -> Result<Value, String> {
     let mut r = match r {
         Ok(r) => r,
-        Err(e) => return Ok(json!({"report": format!("Erro: {e}"), "panel": {"items": {"resultado": {"text": format!("Erro: {e}")}}}})),
+        Err(e) => {
+            let _ = host::call("host.notify", json!({"text": format!("Passagens: {e}"), "error": true}));
+            return Ok(json!({"report": format!("Erro: {e}"), "panel": {"items": {"resultado": {"text": format!("Erro: {e}")}}}}));
+        }
     };
     if let Some(texto) = r.get("report").and_then(Value::as_str) {
         let mut curto: String = texto.chars().take(3_900).collect();
@@ -251,11 +261,12 @@ fn passagens(req: &Request) -> Result<Value, String> {
     };
     let (t0, t1) = (agora - dias * 86_400.0, agora);
 
-    let Some(elementos) = elementos_orbitais(agora, &mut avisos)? else {
+    let Some(orbitas) = elementos_orbitais(agora, &mut avisos)? else {
         return Ok(json!({"pending": true}));
     };
     // Só os satélites com imagens que qualquer um baixa.
-    let elementos: Vec<Value> = elementos.into_iter().filter(|e| e["OBJECT_NAME"].as_str().and_then(gratuitos::de).is_some()).collect();
+    let elementos: Vec<Value> =
+        orbitas.elementos.iter().filter(|e| e["OBJECT_NAME"].as_str().and_then(gratuitos::de).is_some()).cloned().collect();
 
     // As imagens do Planetary Computer, uma coleção por vez (as respostas são grandes).
     let mut imgs: Vec<Imagem> = Vec::new();
@@ -273,6 +284,46 @@ fn passagens(req: &Request) -> Result<Value, String> {
         }
     }
 
+    // A imagem óptica mais recente com pouca nuvem: toda imagem do lugar no período veio de uma
+    // passagem sobre ele. A nuvem aqui é a da cena inteira (o que o STAC diz); Imagens limpas
+    // confere o pixel do lugar, e uma cena nublada pode ter o lugar limpo.
+    //
+    // Ela vem antes do cálculo: clicado, o comando não espera a imagem, e roda de novo quando ela
+    // chega. Com o `gp.run` antes do `stac.addAsset`, o RustGIS recusa a imagem nessa segunda
+    // rodada ("the live source or account changed since this request started"). Assim, a primeira
+    // rodada só pede a imagem e para, e a segunda pega a imagem e calcula.
+    const PIXEL: &str = "o lugar pode estar limpo mesmo assim: Imagens limpas confere o pixel do lugar";
+    let mut linha_imagem = String::new();
+    if trazer_imagem {
+        let mut opticas: Vec<&Imagem> =
+            imgs.iter().filter(|i| i.colecao != "sentinel-1-grd" && i.nuvem.is_some_and(|n| n <= 30.0)).collect();
+        opticas.sort_by(|a, b| b.t.total_cmp(&a.t));
+        let (escolhida, recente) = match opticas.first() {
+            Some(i) => (Some((*i).clone()), true),
+            None => (ultima_vista_limpa(caixa, t1), false),
+        };
+        match escolhida {
+            Some(i) => match adicionar_imagem(&i, &nome, &calculo::satelite_legivel(&i.id), &tempo::local(i.t, fuso), &json!(caixa)) {
+                Ok(None) => return Ok(json!({"pending": true})),
+                Ok(Some(n)) if recente => {
+                    linha_imagem = format!("\nA imagem mais recente com pouca nuvem na cena inteira já está no mapa: {n}.")
+                }
+                Ok(Some(n)) => {
+                    linha_imagem = format!(
+                        "\nNenhuma imagem óptica do período tem 30% de nuvem ou menos na cena inteira ({PIXEL}). A última cena limpa ({}) já está no mapa: {n}.",
+                        tempo::dia(i.t)
+                    )
+                }
+                Err(e) => avisos.push(format!("imagem {}: {e}", i.id)),
+            },
+            None => {
+                linha_imagem = format!(
+                    "\nNenhuma imagem óptica do período tem 30% de nuvem ou menos na cena inteira, nem dos 120 dias antes ({PIXEL})."
+                )
+            }
+        }
+    }
+
     // O cálculo, na ferramenta.
     let camada = format!("{PREFIXO}{nome}");
     let camada_lugar = format!("{PREFIXO}{nome} (lugar)");
@@ -287,6 +338,7 @@ fn passagens(req: &Request) -> Result<Value, String> {
             "imagens": Value::Array(imgs_json).to_string(),
             "lat": lat, "lon": lon, "inicio": t0, "fim": t1, "fuso": fuso,
             "lugar": nome, "camada": camada, "camadaLugar": camada_lugar, "nuvemAgora": nuvem_agora,
+            "orbitas": orbitas.fonte,
         }}),
     )?;
     // O relatório vem no ponto do lugar, que a ferramenta faz (o gp.run não devolve as mensagens
@@ -301,56 +353,40 @@ fn passagens(req: &Request) -> Result<Value, String> {
     let _ = host::run("map.goToXY", json!({"lon": lon, "lat": lat, "scale": 15_000_000}));
 
     // A imagem óptica mais recente com pouca nuvem: toda imagem do lugar no período veio de uma
-    // passagem sobre ele.
+    // passagem sobre ele. A nuvem aqui é a da cena inteira (o que o STAC diz); Imagens limpas
+    // confere o pixel do lugar, e uma cena nublada pode ter o lugar limpo.
     relatorio += &format!(
         "\n\nA camada {camada} tem uma linha por passagem (o traço no chão), colorida pela categoria, com a hora, a distância, o Sol e a imagem. Selecione uma passagem que fotografou e rode Imagem da passagem para vê-la."
     );
-    if trazer_imagem {
-        let mut opticas: Vec<&Imagem> =
-            imgs.iter().filter(|i| i.colecao != "sentinel-1-grd" && i.nuvem.is_some_and(|n| n <= 30.0)).collect();
-        opticas.sort_by(|a, b| b.t.total_cmp(&a.t));
-        match opticas.first() {
-            Some(i) => match adicionar_imagem(i, &calculo::satelite_legivel(&i.id), &tempo::local(i.t, fuso)) {
-                Ok(n) => relatorio += &format!("\nA imagem mais recente com pouca nuvem já está no mapa: {n}."),
-                Err(e) => avisos.push(format!("imagem {}: {e}", i.id)),
-            },
-            None => match ultima_vista_limpa(caixa, t1) {
-                Some(i) => match adicionar_imagem(&i, &calculo::satelite_legivel(&i.id), &tempo::local(i.t, fuso)) {
-                    Ok(n) => {
-                        relatorio += &format!(
-                            "\nNenhuma imagem óptica do período tem 30% de nuvem ou menos. A última vista limpa ({}) já está no mapa: {n}.",
-                            tempo::dia(i.t)
-                        )
-                    }
-                    Err(e) => avisos.push(format!("imagem {}: {e}", i.id)),
-                },
-                None => relatorio += "\nNenhuma imagem óptica do período tem 30% de nuvem ou menos, nem dos 120 dias antes.",
-            },
-        }
-    }
+    relatorio += &linha_imagem;
     if !avisos.is_empty() {
         relatorio += &format!("\n\nAvisos: {}", avisos.join("; "));
     }
+    orbitas.guardar();
     Ok(json!({"report": relatorio}))
 }
 
 /// Os elementos orbitais, nesta ordem: os do cache, se têm menos de [`cache::VALIDADE`]; os do
 /// arquivo do GitHub, se ele tem menos de [`cache::FRESCO`]; os do CelesTrak. Os que vieram de
 /// fora vão para o cache. Se nada responde, servem as órbitas guardadas mais novas, de até
-/// [`cache::LIMITE`], com um aviso. `None`: um download ainda está chegando.
-fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec<Value>>, String> {
+/// [`cache::LIMITE`], com um aviso. `None`: um download ainda está chegando. Com os elementos vem
+/// de onde eles vieram, para o relatório ("do CelesTrak", "do arquivo diário do plugin"...).
+///
+/// O cache novo não é gravado aqui: quem chama grava com [`Orbitas::guardar`] no fim, depois das
+/// chamadas que baixam. Um comando clicado que grava as configurações e depois espera um download
+/// é recusado quando roda de novo ("the live source or account changed since this request
+/// started").
+fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Orbitas>, String> {
     let guardado = host::call("host.settings", json!({})).ok().and_then(|c| cache::expandir(&c["gp"]));
     if let Some((els, quando)) = &guardado
         && agora - quando < cache::VALIDADE
         && !els.is_empty()
     {
-        return Ok(Some(els.clone()));
+        return Ok(Some(Orbitas::new(els.clone(), format!("guardadas no plugin, de {}", tempo::idade(agora - quando)), None)));
     }
-    let guardar = |c: &Value| {
-        if c.to_string().len() <= cache::MAXIMO {
-            let _ = host::call("host.setSettings", json!({"values": {"gp": c}}));
-        }
-    };
+    // O mesmo arquivo de antes (o do GitHub muda uma vez por dia) não é gravado de novo.
+    let quando_guardado = guardado.as_ref().map(|g| g.1);
+    let novo = |c: &Value, quando: f64| (quando_guardado != Some(quando)).then(|| c.clone());
     // O arquivo do GitHub.
     let mut falhas = Vec::new();
     let mut reservas: Vec<(Vec<Value>, f64)> = Vec::new();
@@ -359,8 +395,11 @@ fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec
         Ok(Some(r)) => match cache::expandir(&r["json"]) {
             Some((els, quando)) if !els.is_empty() => {
                 if agora - quando < cache::FRESCO {
-                    guardar(&r["json"]);
-                    return Ok(Some(els));
+                    return Ok(Some(Orbitas::new(
+                        els,
+                        format!("do arquivo diário do plugin (copiadas do CelesTrak), de {}", tempo::idade(agora - quando)),
+                        novo(&r["json"], quando),
+                    )));
                 }
                 falhas.push(format!("o arquivo de órbitas do GitHub tem {:.0} dias", (agora - quando) / 86_400.0));
                 reservas.push((els, quando));
@@ -400,8 +439,8 @@ fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec
         }
     }
     if falhas.len() == falhas_antes && !elementos.is_empty() {
-        guardar(&cache::compactar(&elementos, agora));
-        return Ok(Some(elementos));
+        let c = cache::compactar(&elementos, agora);
+        return Ok(Some(Orbitas::new(elementos, "do CelesTrak, baixadas agora".to_string(), Some(c))));
     }
     // Faltou algo: as órbitas inteiras mais novas que houver são melhores que metade delas.
     reservas.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -413,7 +452,11 @@ fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec
             (agora - quando) / 86_400.0,
             falhas.join("; ")
         ));
-        return Ok(Some(els));
+        return Ok(Some(Orbitas::new(
+            els,
+            format!("guardadas, de {} (as fontes novas não responderam)", tempo::idade(agora - quando)),
+            None,
+        )));
     }
     if elementos.is_empty() {
         return Err(format!(
@@ -422,7 +465,29 @@ fn elementos_orbitais(agora: f64, avisos: &mut Vec<String>) -> Result<Option<Vec
         ));
     }
     avisos.push(format!("o CelesTrak não deu todos os grupos ({})", falhas.join("; ")));
-    Ok(Some(elementos))
+    Ok(Some(Orbitas::new(elementos, "do CelesTrak, baixadas agora (faltaram grupos)".to_string(), None)))
+}
+
+/// Os elementos orbitais, de onde vieram, e o cache a gravar (quando vieram de fora).
+struct Orbitas {
+    elementos: Vec<Value>,
+    fonte: String,
+    cache_novo: Option<Value>,
+}
+
+impl Orbitas {
+    fn new(elementos: Vec<Value>, fonte: String, cache_novo: Option<Value>) -> Orbitas {
+        Orbitas { elementos, fonte, cache_novo }
+    }
+
+    /// Grava o cache novo, se há um: no fim do comando, depois das chamadas que baixam.
+    fn guardar(&self) {
+        if let Some(c) = &self.cache_novo
+            && c.to_string().len() <= cache::MAXIMO
+        {
+            let _ = host::call("host.setSettings", json!({"values": {"gp": c}}));
+        }
+    }
 }
 
 /// A imagem do Sentinel-2 mais recente com até 10% de nuvem nos 120 dias até `t1`.
@@ -468,6 +533,7 @@ fn calcular(req: &Request) -> Result<Value, String> {
         fuso: req.f64("fuso").unwrap_or(0.0),
         nome: lugar,
         nuvem_agora: req.f64("nuvemAgora"),
+        orbitas: req.str("orbitas").unwrap_or("do CelesTrak"),
     });
     let (lat, lon) = (numero("lat")?, numero("lon")?);
     let mut out = ToolOutput::new().layer(
@@ -518,10 +584,11 @@ fn proximas(req: &Request) -> Result<Value, String> {
         None => nome_do_lugar(photon.ok().flatten().as_ref()).unwrap_or_else(|| format!("{lat:.4}, {lon:.4}")),
     };
     let mut avisos: Vec<String> = Vec::new();
-    let Some(elementos) = elementos_orbitais(agora, &mut avisos)? else {
+    let Some(orbitas) = elementos_orbitais(agora, &mut avisos)? else {
         return Ok(json!({"pending": true}));
     };
-    let elementos: Vec<Value> = elementos.into_iter().filter(|e| e["OBJECT_NAME"].as_str().and_then(gratuitos::de).is_some()).collect();
+    let elementos: Vec<Value> =
+        orbitas.elementos.iter().filter(|e| e["OBJECT_NAME"].as_str().and_then(gratuitos::de).is_some()).cloned().collect();
     if elementos.is_empty() {
         return Err("as órbitas não têm nenhum dos satélites de imagem gratuita".into());
     }
@@ -553,6 +620,7 @@ fn proximas(req: &Request) -> Result<Value, String> {
     if !avisos.is_empty() {
         relatorio += &format!("\n\nAvisos: {}", avisos.join("; "));
     }
+    orbitas.guardar();
     Ok(json!({"report": relatorio}))
 }
 
@@ -692,20 +760,27 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
     // As datas da barra de tempo: as limpas mais novas.
     let limpas: Vec<String> = datas.iter().filter(|d| d.ceu == galeria::Ceu::Limpo).take(quantas).map(|d| tempo::dia(d.imagem.t)).collect();
 
-    // Os cubos de antes saem; os novos entram com as imagens do Earth Search.
+    // Os cubos com as imagens do Earth Search, um por data limpa.
+    //
+    // Clicado no painel ou na faixa, o comando não espera os downloads: o RustGIS desfaz o que ele
+    // fez, baixa, e roda o comando de novo, e o cubo que o download pôs fica no mapa. Por isso nada
+    // sai do mapa antes dos `stac.addCube`: um cubo de antes tirado aqui seria, na segunda rodada,
+    // o que o download acabou de pôr ("the layer its download added was removed"). A data que já
+    // tem cubo (de uma rodada anterior, ou do download) fica com ele; as que não são mais limpas
+    // saem no fim.
     let camada = format!("{PREFIXO_IMAGENS}{nome}");
-    let projeto = host::run("info.project", json!({}))?;
-    let velhas: Vec<String> = projeto["tileLayers"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|t| t["name"].as_str())
-        .filter(|n| n.starts_with(&camada))
-        .map(str::to_string)
-        .collect();
-    for n in velhas {
-        let _ = host::run("map.removeTiles", json!({"name": n}));
-    }
+    let cubos_no_mapa = || -> Result<Vec<String>, String> {
+        let projeto = host::run("info.project", json!({}))?;
+        Ok(projeto["tileLayers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| t["name"].as_str())
+            .filter(|n| nomes::data_do_cubo(n, &camada).is_some())
+            .map(str::to_string)
+            .collect())
+    };
+    let do_dia = |n: &str, dia: &str| nomes::data_do_cubo(n, &camada) == Some(dia);
     let mut relatorio = galeria::relatorio(&nome, dias, &datas, fuso, calculo::satelite_legivel);
     if limpas.is_empty() {
         relatorio += "\nNenhuma das datas conferidas tem o céu limpo no lugar: rode de novo com mais dias.";
@@ -716,9 +791,15 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
     // mais velhos entram por último, por cima, e cada passo mostra a sua data.
     let meio = lado / 2.0 / 111.32;
     let meio_lon = meio / lat.to_radians().cos().max(0.01);
+    let ja_no_mapa = cubos_no_mapa()?;
     let mut passos: Vec<String> = Vec::new();
     let mut falhas: Vec<String> = Vec::new();
+    let mut baixando = false;
     for dia in &limpas {
+        if ja_no_mapa.iter().any(|n| do_dia(n, dia)) {
+            passos.push(dia.clone());
+            continue;
+        }
         let cubo = host::run(
             "stac.addCube",
             json!({"collection": "sentinel-2-l2a", "asset": "visual",
@@ -727,17 +808,25 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
                    "attribution": "Sentinel-2 (Copernicus), Earth Search (Element 84)"}),
         );
         match cubo {
-            Ok(r) if esperando(&r) => return Ok(json!({"pending": true})),
+            // Os downloads começam juntos: o comando volta quando todos chegarem.
+            Ok(r) if esperando(&r) => baixando = true,
             Ok(r) if r["dates"].as_u64().unwrap_or(0) > 0 => passos.push(dia.clone()),
             Ok(_) => falhas.push(format!("{dia}: o Earth Search não tem a imagem")),
             Err(e) => {
                 falhas.push(format!("{dia}: {e}"));
                 // Sem cubo aqui (o app web), nenhum outro entra.
-                if passos.is_empty() {
+                if passos.is_empty() && !baixando {
                     break;
                 }
             }
         }
+    }
+    if baixando {
+        return Ok(json!({"pending": true}));
+    }
+    // Agora, depois de todos os `stac.addCube`, saem os cubos das datas que não são mais limpas.
+    for n in cubos_no_mapa()?.into_iter().filter(|n| !limpas.iter().any(|dia| do_dia(n, dia))) {
+        let _ = host::run("map.removeTiles", json!({"name": n}));
     }
     if passos.is_empty() {
         relatorio += &format!(
@@ -780,18 +869,19 @@ fn rodar_ferramenta(lon: f64, lat: f64, pedido: Value) -> Result<Value, String> 
     r
 }
 
-/// Remove as camadas `nomes` que estiverem no mapa (de uma rodada anterior).
+/// Remove as camadas `nomes` que estiverem no mapa (de uma rodada anterior), as repetidas também.
+///
+/// Pelo nome, uma por vez, e sem erro quando ela não está: o `layer.remove` com uma lista de ids
+/// falha inteiro se um id não existe mais ("select a layer in the Layers pane first"), e um
+/// comando clicado roda de novo depois de desfeito, quando os ids lidos antes já não valem.
 fn remover(nomes: &[&str]) -> Result<(), String> {
-    let camadas = host::layers()?;
-    let ids: Vec<Value> = camadas
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|l| l["name"].as_str().is_some_and(|n| nomes.contains(&n)))
-        .map(|l| l["id"].clone())
-        .collect();
-    if !ids.is_empty() {
-        host::run("layer.remove", json!({"layer": ids}))?;
+    for nome in nomes {
+        // Até 20 camadas com o mesmo nome; o `layer.remove` falha quando não há mais nenhuma.
+        for _ in 0..20 {
+            if host::run("layer.remove", json!({"layer": nome})).is_err() {
+                break;
+            }
+        }
     }
     Ok(())
 }
@@ -807,21 +897,82 @@ fn estilo(camada: &str) {
     }
 }
 
-/// Põe a imagem do item no mapa; o nome da camada.
-fn adicionar_imagem(i: &Imagem, satelite: &str, quando: &str) -> Result<String, String> {
+/// Põe a imagem do item no mapa; o nome da camada. `area` é onde buscar a mesma imagem no Earth
+/// Search: uma caixa `[oeste, sul, leste, norte]` ou uma geometria GeoJSON.
+///
+/// O Sentinel-2 vem do Earth Search quando o mesmo item está lá: os arquivos dele são públicos, e
+/// os endereços do Planetary Computer são assinados e expiram (a camada de um projeto salvo
+/// ficaria sem imagem). Os outros satélites vêm do Planetary Computer.
+///
+/// `None`: a imagem está chegando. Clicado, o comando não espera a imagem: o RustGIS a lê depois
+/// e roda o comando de novo, e esta chamada responde então o que a leitura pôs no mapa.
+///
+/// O nome leva o lugar ("Passagens: Viçosa, Sentinel-2C 2026-10-09 10:02, 2% de nuvem"): a mesma
+/// data de outro lugar é outra imagem, e não sai do mapa quando esta entra.
+fn adicionar_imagem(i: &Imagem, lugar: &str, satelite: &str, quando: &str, area: &Value) -> Result<Option<String>, String> {
     let nuvem = i.nuvem.map(|n| format!(", {n:.0}% de nuvem")).unwrap_or_default();
-    let nome = format!("{PREFIXO}{satelite} {quando}{nuvem}");
-    let mut p = json!({"url": i.url, "name": nome});
-    match i.colecao.as_str() {
-        "sentinel-2-l2a" => p["asset"] = json!("visual"),
-        "sentinel-1-grd" => p["asset"] = json!("vv"),
-        _ => {}
-    }
+    let nome = format!("{PREFIXO}{lugar}, {satelite} {quando}{nuvem}");
+    let p = match item_publico(i, area) {
+        Some(item) => json!({"item": item, "asset": "visual", "name": nome}),
+        None => {
+            let mut p = json!({"url": i.url, "name": nome});
+            match i.colecao.as_str() {
+                "sentinel-2-l2a" => p["asset"] = json!("visual"),
+                "sentinel-1-grd" => p["asset"] = json!("vv"),
+                _ => {}
+            }
+            p
+        }
+    };
     let r = host::run("stac.addAsset", p)?;
+    // Chegando: o comando roda de novo quando a imagem estiver no mapa.
     if esperando(&r) {
-        return Ok(format!("{nome} (chegando)"));
+        return Ok(None);
     }
-    Ok(nome)
+    // A mesma imagem de uma rodada anterior sai só agora, depois do download: tirada antes, a
+    // rodada de novo de um comando clicado acharia a sua camada nova tirada. Com o nome ainda em
+    // uso, a nova entrou como "Nome (2)", e volta ao nome certo.
+    let entrou = r["name"].as_str().unwrap_or(&nome).to_string();
+    let velhas: Vec<String> = host::layers()?
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l["name"].as_str())
+        .filter(|n| *n != entrou && (*n == nome || n.strip_prefix(&nome).is_some_and(nomes::copia)))
+        .map(str::to_string)
+        .collect();
+    let velhas: Vec<&str> = velhas.iter().map(String::as_str).collect();
+    remover(&velhas)?;
+    if entrou != nome {
+        host::run("layer.rename", json!({"layer": entrou, "name": nome}))?;
+    }
+    Ok(Some(nome))
+}
+
+/// O mesmo item do Sentinel-2 no Earth Search (arquivos públicos na AWS): o do mesmo satélite, na
+/// mesma grade MGRS e no mesmo dia. Entre os reprocessados (`_0_L2A`, `_1_L2A`), o mais novo.
+fn item_publico(i: &Imagem, area: &Value) -> Option<Value> {
+    if i.colecao != "sentinel-2-l2a" {
+        return None;
+    }
+    let (sat, dia, grade) = imagens::partes_s2(&i.id)?;
+    let mut p = json!({"collections": ["sentinel-2-l2a"], "datetime": dia, "limit": 50, "footprints": false});
+    if area.is_array() {
+        p["bbox"] = area.clone();
+    } else {
+        p["intersects"] = area.clone();
+    }
+    let r = host::run("stac.search", p).ok()?;
+    if esperando(&r) {
+        return None;
+    }
+    let comeco = format!("{sat}_{grade}_");
+    r["items"]
+        .as_array()?
+        .iter()
+        .filter(|it| it["id"].as_str().is_some_and(|id| id.starts_with(&comeco)))
+        .max_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()))
+        .cloned()
 }
 
 /// `imagem`: a imagem da passagem selecionada.
@@ -836,7 +987,13 @@ fn imagem() -> Result<Value, String> {
     // A ativa primeiro.
     ordem.sort_by_key(|l| l["active"] != true);
     for l in ordem {
-        let fc = host::features(l["name"].as_str().unwrap_or_default(), true)?;
+        let camada = l["name"].as_str().unwrap_or_default();
+        let fc = host::features(camada, true)?;
+        // Onde buscar a imagem: o ponto do lugar, da camada "(lugar)" ao lado; sem ela, o traço.
+        let lugar = host::features(&format!("{camada} (lugar)"), false)
+            .ok()
+            .and_then(|p| geojson::positions(&p["features"][0]["geometry"]).first().copied())
+            .map(|[x, y]| json!([x - 0.0005, y - 0.0005, x + 0.0005, y + 0.0005]));
         for f in fc["features"].as_array().into_iter().flatten() {
             let p = &f["properties"];
             let Some(url) = p["url"].as_str().filter(|u| !u.is_empty()) else { continue };
@@ -847,7 +1004,18 @@ fn imagem() -> Result<Value, String> {
                 nuvem: p["nuvem"].as_f64(),
                 url: url.into(),
             };
-            let nome = adicionar_imagem(&img, p["satelite"].as_str().unwrap_or_default(), p["hora_local"].as_str().unwrap_or_default())?;
+            let area = lugar.clone().unwrap_or_else(|| f["geometry"].clone());
+            let lugar = camada.strip_prefix(PREFIXO).unwrap_or(camada);
+            let Some(nome) = adicionar_imagem(
+                &img,
+                lugar,
+                p["satelite"].as_str().unwrap_or_default(),
+                p["hora_local"].as_str().unwrap_or_default(),
+                &area,
+            )?
+            else {
+                return Ok(json!({"pending": true}));
+            };
             return Ok(json!({"report": format!("No mapa: {nome}.")}));
         }
     }

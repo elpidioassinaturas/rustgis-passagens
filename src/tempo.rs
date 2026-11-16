@@ -92,6 +92,18 @@ pub fn gmst(t: f64) -> f64 {
     sgp4::iau_epoch_to_sidereal_time((juliano(t) - 2_451_545.0) / 365.25)
 }
 
+/// Uma idade em segundos, em palavras: "40 minutos atrás", "5 horas atrás", "2,5 dias atrás".
+pub fn idade(segundos: f64) -> String {
+    let s = segundos.max(0.0);
+    if s < 2.0 * 3600.0 {
+        format!("{:.0} minutos atrás", s / 60.0)
+    } else if s < 2.0 * 86_400.0 {
+        format!("{:.0} horas atrás", s / 3600.0)
+    } else {
+        format!("{:.1} dias atrás", s / 86_400.0).replace('.', ",")
+    }
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -113,5 +125,13 @@ mod testes {
         // 2000-01-01T12:00Z: GMST = 280.46°.
         let g = gmst(946_728_000.0).to_degrees();
         assert!((g - 280.46).abs() < 0.01, "{g}");
+    }
+
+    #[test]
+    fn idade_em_palavras() {
+        assert_eq!(idade(40.0 * 60.0), "40 minutos atrás");
+        assert_eq!(idade(5.0 * 3600.0), "5 horas atrás");
+        assert_eq!(idade(2.5 * 86_400.0), "2,5 dias atrás");
+        assert_eq!(idade(-10.0), "0 minutos atrás");
     }
 }

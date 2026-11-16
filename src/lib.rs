@@ -17,6 +17,7 @@ pub mod galeria;
 pub mod gratuitos;
 pub mod imagens;
 pub mod municipios;
+pub mod nomes;
 pub mod orbita;
 pub mod perfis;
 pub mod proximas;

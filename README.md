@@ -23,7 +23,8 @@ lugar**, abre o painel:
 Os botões **Passagens de satélites**, **Imagens do lugar** e **Próximas imagens** do grupo são os
 mesmos comandos com um formulário (município, dias, tamanho do recorte). O **Município** é o nome
 (`Ubaporanga`, ou `Viçosa/MG` quando o nome se repete) ou o código do IBGE; vazio, vale o último
-lugar escolhido no painel, ou o centro do mapa. Os municípios (com a sede de cada um) vão dentro do
+lugar escolhido no painel, ou o centro do mapa. O município de um formulário vale só para ele: o
+lugar dos botões do painel muda só no painel. Os municípios (com a sede de cada um) vão dentro do
 plugin: `src/municipios.csv`, gerado por `scripts/municipios.py` a partir do
 [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros) (MIT).
 
@@ -100,8 +101,10 @@ O Sentinel-1B, que o CelesTrak ainda rastreia, falhou em 2021 e fica de fora (`s
    previsão.
 4. **Imagens.** O `stac.search` do RustGIS procura Sentinel-2 L2A, Landsat C2 L2 e Sentinel-1 GRD
    no Microsoft Planetary Computer, num retângulo de ~100 m em volta do lugar. A imagem óptica
-   mais recente com até 30% de nuvem vai para o mapa. Se não houver, vai a última vista limpa do
-   Sentinel-2 (até 10% de nuvem, 120 dias).
+   mais recente com até 30% de nuvem na cena inteira vai para o mapa. Se não houver, vai a última
+   cena limpa do Sentinel-2 (até 10% de nuvem, 120 dias). O lugar pode estar limpo numa cena
+   nublada: **Imagens do lugar** confere o pixel. A imagem do Sentinel-2 vem do mesmo item no Earth
+   Search, de endereço público (os do Planetary Computer expiram), numa camada com o nome do lugar.
 5. **Hora e lugar.** O plugin não tem relógio: a hora vem do Open-Meteo, com o fuso do lugar, e o
    nome do lugar vem da busca reversa do Photon (OpenStreetMap).
 

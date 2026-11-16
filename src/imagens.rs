@@ -79,6 +79,21 @@ pub fn casar(passagens: &mut [Passagem], imagens: &[Imagem]) -> Vec<Vec<Imagem>>
     por_passagem
 }
 
+/// Do id de um item do Sentinel-2 no Planetary Computer
+/// (`S2C_MSIL2A_20261009T130251_R095_T23KQT_20261009T154802`): o satélite (`S2C`), o dia
+/// (`2026-10-09`) e a grade MGRS (`23KQT`).
+pub fn partes_s2(id: &str) -> Option<(&str, String, &str)> {
+    let p: Vec<&str> = id.split('_').collect();
+    let sat = *p.first()?;
+    let data = p.get(2)?.get(..8)?;
+    if !data.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let dia = format!("{}-{}-{}", &data[..4], &data[4..6], &data[6..8]);
+    let grade = p.iter().skip(3).find(|s| s.len() == 6 && s.starts_with('T'))?.get(1..)?;
+    Some((sat, dia, grade))
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -120,5 +135,12 @@ mod testes {
         assert_eq!(ps[1].categoria, Categoria::Provavel);
         // A imagem do S2A não é do S2C.
         assert_eq!(ps[2].categoria, Categoria::Provavel);
+    }
+
+    #[test]
+    fn partes_do_id_do_sentinel_2() {
+        assert_eq!(partes_s2("S2C_MSIL2A_20261009T130251_R095_T23KQT_20261009T154802"), Some(("S2C", "2026-10-09".to_string(), "23KQT")));
+        assert_eq!(partes_s2("LC09_L2SP_217074_20261110_02_T1"), None);
+        assert_eq!(partes_s2("S2B"), None);
     }
 }

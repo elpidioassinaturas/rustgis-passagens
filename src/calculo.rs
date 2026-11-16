@@ -28,6 +28,8 @@ pub struct Entrada<'a> {
     pub nome: &'a str,
     /// A nuvem de agora no lugar, em %.
     pub nuvem_agora: Option<f64>,
+    /// De onde vieram as órbitas, para o relatório ("do CelesTrak, baixadas agora").
+    pub orbitas: &'a str,
 }
 
 /// O resultado: a camada (GeoJSON) e o relatório.
@@ -151,7 +153,7 @@ fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> S
     if let Some(n) = e.nuvem_agora {
         t += &format!("Nuvens agora: {n:.0}%.\n");
     }
-    t += "\nÓrbitas do CelesTrak, calculadas com o SGP4.";
+    t += &format!("\nÓrbitas {}, calculadas com o SGP4.", e.orbitas);
     t
 }
 

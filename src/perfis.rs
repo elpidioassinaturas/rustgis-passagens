@@ -49,6 +49,10 @@ pub fn perfil(nome: &str) -> Option<Perfil> {
     if let Some(letra) = n.strip_prefix("SENTINEL-2") {
         return Some(Perfil { sensor: Sensor::Nadir { meia_faixa: 145.0 }, stac: stac_sentinel("S2", letra) });
     }
+    // O Sentinel-1B falhou em dezembro de 2021: só passa por cima.
+    if n == "SENTINEL-1B" {
+        return None;
+    }
     if let Some(letra) = n.strip_prefix("SENTINEL-1") {
         return Some(Perfil { sensor: Sensor::Radar { perto: 240.0, longe: 490.0 }, stac: stac_sentinel("S1", letra) });
     }

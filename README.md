@@ -7,7 +7,8 @@ Inspirado no [watched.earth](https://www.watched.earth).
 
 ## Uso: o painel
 
-Na aba **Satélites**, o botão **Satélites sobre um lugar** abre o painel:
+Na aba **Plugins**, o primeiro botão do grupo **Passagens de satélites**, **Satélites sobre um
+lugar**, abre o painel:
 
 1. **Escolher o lugar no mapa**, e um clique no mapa. O painel mostra o nome do lugar e as
    coordenadas.
@@ -18,8 +19,8 @@ Na aba **Satélites**, o botão **Satélites sobre um lugar** abre o painel:
    - **Recentes:** as passagens dos últimos 7 dias e as imagens que elas fizeram.
 3. O resultado aparece no painel, e as camadas no mapa.
 
-O grupo **Com mais opções** da aba tem os mesmos comandos com um formulário (dias, tamanho do
-recorte, nome do lugar, latitude e longitude). Com a latitude e a longitude vazias, eles usam o
+Os botões **Passagens de satélites**, **Imagens do lugar** e **Próximas imagens** do grupo são os
+mesmos comandos com um formulário (dias, tamanho do recorte, nome do lugar, latitude e longitude). Com a latitude e a longitude vazias, eles usam o
 lugar escolhido no painel, ou o centro do mapa.
 
 ## Comandos

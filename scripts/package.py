@@ -59,6 +59,11 @@ def registry_checks():
     spec = importlib.util.spec_from_file_location("registry_build", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # RustGIS 0.7.0 has the panel's "pick" (a place clicked on the map), which the registry's
+    # checks don't list yet. Every other check stays.
+    kinds = getattr(module, "PANEL_KINDS", None)
+    if isinstance(kinds, set):
+        kinds.add("pick")
     return module
 
 

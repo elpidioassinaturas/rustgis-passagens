@@ -49,6 +49,11 @@ fn handle(req: Request) -> Result<Value, String> {
         (Kind::Command, "proximas") => proximas(&req),
         (Kind::Command, "imagem") => imagem(),
         (Kind::Command, "imagens") => imagens_do_lugar(&req),
+        // O painel: o clique no mapa e os botões, que rodam sem formulário.
+        (Kind::Command, "marcar") => marcar(&req),
+        (Kind::Command, "ver-passagens") => no_painel(passagens(&req)),
+        (Kind::Command, "ver-imagens") => no_painel(imagens_do_lugar(&req)),
+        (Kind::Command, "ver-proximas") => no_painel(proximas(&req)),
         (Kind::Tool, "calcular") => calcular(&req),
         (Kind::Tool, "proximas") => calcular_proximas(&req),
         (_, outro) => Err(format!("o Passagens não tem '{outro}'")),
@@ -71,7 +76,13 @@ fn esperando(r: &Value) -> bool {
     r.get("pending").and_then(Value::as_bool) == Some(true) || r.get("downloading").is_some()
 }
 
-/// O lugar: `lat` e `lon` dos parâmetros, ou o centro do mapa.
+/// O lugar clicado no mapa pelo painel (o pick `lugar`), se há um.
+fn lugar_do_painel(req: &Request) -> Option<(f64, f64)> {
+    let p = req.panel.get("lugar")?;
+    Some((p["lat"].as_f64()?, p["lon"].as_f64()?))
+}
+
+/// O lugar: `lat` e `lon` dos parâmetros; senão o clicado no painel; senão o centro do mapa.
 fn lugar(req: &Request) -> Result<(f64, f64), String> {
     match (req.f64("lat"), req.f64("lon")) {
         (Some(lat), Some(lon)) => {
@@ -80,6 +91,7 @@ fn lugar(req: &Request) -> Result<(f64, f64), String> {
             }
             Ok((lat, lon))
         }
+        (None, None) if lugar_do_painel(req).is_some() => lugar_do_painel(req).ok_or_else(String::new),
         (None, None) => {
             let v = host::view()?;
             let c = &v["center"];
@@ -90,6 +102,39 @@ fn lugar(req: &Request) -> Result<(f64, f64), String> {
         }
         _ => Err("dê lat e lon juntas (ou nenhuma, para o centro do mapa)".into()),
     }
+}
+
+/// `marcar`: o lugar clicado no mapa pelo painel, com o nome que o Photon dá a ele.
+fn marcar(req: &Request) -> Result<Value, String> {
+    let Some((lat, lon)) = lugar_do_painel(req) else {
+        return Ok(json!({"panel": {"items": {"onde": {"text": "Nenhum lugar escolhido: clique em Escolher no mapa e depois no mapa."}}}}));
+    };
+    let photon = match buscar(&format!("https://photon.komoot.io/reverse?lon={lon:.5}&lat={lat:.5}&radius=20&limit=1")) {
+        Ok(None) => return Ok(json!({"pending": true})),
+        Ok(Some(r)) => Some(r),
+        Err(_) => None,
+    };
+    let nome = nome_do_lugar(photon.as_ref()).map(|n| format!("{n}\n")).unwrap_or_default();
+    Ok(json!({"panel": {"items": {
+        "onde": {"text": format!("{nome}{lat:.5}, {lon:.5}")},
+        "resultado": {"text": "Escolha o que ver: os botões acima rodam para este lugar."},
+    }}}))
+}
+
+/// A resposta de um comando com o relatório também no painel (que mostra até 4.000 caracteres).
+fn no_painel(r: Result<Value, String>) -> Result<Value, String> {
+    let mut r = match r {
+        Ok(r) => r,
+        Err(e) => return Ok(json!({"report": format!("Erro: {e}"), "panel": {"items": {"resultado": {"text": format!("Erro: {e}")}}}})),
+    };
+    if let Some(texto) = r.get("report").and_then(Value::as_str) {
+        let mut curto: String = texto.chars().take(3_900).collect();
+        if curto.len() < texto.len() {
+            curto += "\n…";
+        }
+        r["panel"] = json!({"items": {"resultado": {"text": curto}}});
+    }
+    Ok(r)
 }
 
 /// O nome do lugar (a cidade), da busca reversa do Photon (Komoot).
@@ -135,6 +180,8 @@ fn passagens(req: &Request) -> Result<Value, String> {
     let Some(elementos) = elementos_orbitais(agora, &mut avisos)? else {
         return Ok(json!({"pending": true}));
     };
+    // Só os satélites com imagens que qualquer um baixa.
+    let elementos: Vec<Value> = elementos.into_iter().filter(|e| e["OBJECT_NAME"].as_str().and_then(gratuitos::de).is_some()).collect();
 
     // As imagens do Planetary Computer, uma coleção por vez (as respostas são grandes).
     let mut imgs: Vec<Imagem> = Vec::new();

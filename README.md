@@ -5,11 +5,29 @@ dele. As imagens do Sentinel-2 do lugar na barra de tempo, só as de céu limpo 
 satélites de imagem gratuita passam de novo, com a nuvem prevista para a hora de cada passagem.
 Inspirado no [watched.earth](https://www.watched.earth).
 
+## Uso: o painel
+
+Na aba **Satélites**, o botão **Satélites sobre um lugar** abre o painel:
+
+1. **Escolher o lugar no mapa**, e um clique no mapa. O painel mostra o nome do lugar e as
+   coordenadas.
+2. Um dos botões, que rodam para esse lugar sem perguntar nada:
+   - **Imagens limpas:** as imagens de céu limpo do Sentinel-2 dos últimos 60 dias na barra de
+     tempo;
+   - **Próximas:** as próximas passagens dos próximos 10 dias, com a nuvem prevista;
+   - **Recentes:** as passagens dos últimos 7 dias e as imagens que elas fizeram.
+3. O resultado aparece no painel, e as camadas no mapa.
+
+O grupo **Com mais opções** da aba tem os mesmos comandos com um formulário (dias, tamanho do
+recorte, nome do lugar, latitude e longitude). Com a latitude e a longitude vazias, eles usam o
+lugar escolhido no painel, ou o centro do mapa.
+
 ## Comandos
 
-- **Passagens de satélites:** os ~330 satélites de observação e meteorológicos que passaram sobre
-  o lugar nos últimos dias, cada passagem como o traço no chão, colorida pelo que o satélite pode
-  ter feito, e a imagem óptica mais recente com pouca nuvem.
+- **Passagens de satélites:** as passagens dos satélites de imagem gratuita que viram o lugar nos
+  últimos dias, cada uma como o traço no chão: fotografou (a imagem está no Planetary Computer) ou
+  provavelmente fotografou (o relatório diz em que catálogo procurar). Traz para o mapa a imagem
+  óptica mais recente com pouca nuvem.
 - **Imagens do lugar:** as imagens do Sentinel-2 do lugar na barra de tempo do RustGIS, um
   recorte de 5 km em volta dele em 10 m, só as datas com o céu limpo no próprio lugar. O céu de
   cada data é a classe da banda SCL (a classificação da cena do Sentinel-2 L2A) no pixel do lugar,
@@ -64,17 +82,17 @@ O Sentinel-1B, que o CelesTrak ainda rastreia, falhou em 2021 e fica de fora (`s
 2. **Passagens.** O SGP4 (crate `sgp4`) acha, em cada órbita, o instante de maior aproximação ao
    lugar, por um passo angular no plano da órbita. As órbitas que passam longe custam uma
    chamada só, e as seguintes que não podem chegar perto são puladas.
-3. **Categorias**, pelo que cada satélite vê (`src/perfis.rs`) e pela luz do Sol:
-   - **fotografou:** há imagem pública da passagem (o item do STAC é do mesmo satélite, a menos de
-     40 min);
-   - **provavelmente fotografou:** a faixa fixa da câmera cobriu o lugar, de dia (ou o radar do
-     Sentinel-1, à direita da órbita), sem imagem publicada;
-   - **poderia ter apontado:** uma câmera ou um radar apontável estava ao alcance;
-   - **passou por cima:** cruzou o céu a mais de 45° do horizonte.
+3. **Só o que vira imagem para baixar.** Só os satélites de imagem gratuita (a tabela acima), e
+   só as passagens em que a faixa da câmera cobriu o lugar de dia (ou a do radar do Sentinel-1, à
+   direita da órbita), pelo que cada um vê (`src/perfis.rs`):
+   - **fotografou:** a imagem está no Planetary Computer (o item do STAC é do mesmo satélite, a
+     menos de 40 min);
+   - **provavelmente fotografou:** a imagem não está lá; o relatório diz em que catálogo procurar
+     (INPE, NASA, Copernicus, USGS).
 
-   As próximas imagens são as passagens futuras da segunda categoria, só dos satélites gratuitos,
-   coloridas pela nuvem prevista: céu limpo (até 30%), parcialmente nublado, nublado (70% ou mais),
-   radar (a nuvem não importa) e sem previsão.
+   As próximas imagens são as mesmas passagens no futuro, coloridas pela nuvem prevista: céu limpo
+   (até 30%), parcialmente nublado, nublado (70% ou mais), radar (a nuvem não importa) e sem
+   previsão.
 4. **Imagens.** O `stac.search` do RustGIS procura Sentinel-2 L2A, Landsat C2 L2 e Sentinel-1 GRD
    no Microsoft Planetary Computer, num retângulo de ~100 m em volta do lugar. A imagem óptica
    mais recente com até 30% de nuvem vai para o mapa. Se não houver, vai a última vista limpa do
@@ -93,8 +111,8 @@ Permissões: `network` (GitHub, CelesTrak, Open-Meteo, Photon, STAC), `edit` (as
 
 - Passar não garante imagem: o Sentinel-1, os CBERS e o Amazonia-1 gravam o que a programação da
   missão manda. A nuvem prevista para mais de 5 a 7 dias é pouco confiável.
-- Satélites militares e de reconhecimento não estão nos catálogos públicos, e as empresas não
-  dizem para onde apontam as câmeras. *Poderia ter apontado* é só alcance.
+- O painel escolhe o lugar com um clique no mapa (o `pick` do RustGIS 0.7.0). As checagens do
+  registro de plugins ainda não conhecem o `pick`; `scripts/package.py` o acrescenta a elas.
 - As imagens chegam aos arquivos horas ou dias depois. O Landsat L2 atrasa mais.
 - O GitHub desliga os workflows agendados de repositórios sem atividade por 60 dias. Se o arquivo
   de órbitas passar de 3 dias, o plugin volta a perguntar ao CelesTrak.

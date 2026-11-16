@@ -4,6 +4,7 @@
 
 use serde_json::{Value, json};
 
+use crate::gratuitos;
 use crate::imagens::{self, Imagem};
 use crate::orbita::{self, Categoria, Lugar, Passagem, Satelite};
 use crate::perfis;
@@ -37,21 +38,15 @@ pub struct Saida {
 }
 
 pub fn calcular(e: &Entrada) -> Saida {
-    let satelites: Vec<Satelite> = e.gp.iter().filter_map(Satelite::de_gp).collect();
+    // Só os satélites com imagens que qualquer um baixa, e só as passagens em que a câmera (ou o
+    // radar) viu o lugar.
+    let satelites: Vec<Satelite> =
+        e.gp.iter().filter_map(Satelite::de_gp).filter(|s| gratuitos::de(&s.nome).is_some() && !s.geoestacionario()).collect();
     let alvo = Lugar::new(e.lon, e.lat);
     let mut todas: Vec<Passagem> = Vec::new();
-    let mut geo = Vec::new();
     for s in &satelites {
-        if s.geoestacionario() {
-            if let Some((r, _)) = s.estado(e.t1)
-                && alvo.elevacao(r) > 10.0
-            {
-                geo.push(s.nome.clone());
-            }
-            continue;
-        }
         let perfil = perfis::perfil(&s.nome);
-        todas.extend(orbita::passagens(s, perfil.as_ref(), &alvo, e.t0, e.t1));
+        todas.extend(orbita::passagens(s, perfil.as_ref(), &alvo, e.t0, e.t1).into_iter().filter(|p| p.categoria == Categoria::Provavel));
     }
     todas.sort_by(|a, b| a.t.total_cmp(&b.t));
     let por_passagem = imagens::casar(&mut todas, e.imagens);
@@ -90,11 +85,7 @@ pub fn calcular(e: &Entrada) -> Saida {
         })
         .collect();
     let passagens = feicoes.len();
-    Saida {
-        camada: json!({"type": "FeatureCollection", "features": feicoes}),
-        relatorio: relatorio(e, &todas, &por_passagem, &geo, satelites.len()),
-        passagens,
-    }
+    Saida { camada: json!({"type": "FeatureCollection", "features": feicoes}), relatorio: relatorio(e, &todas, &por_passagem), passagens }
 }
 
 /// Uma linha, cortada onde cruza o antimeridiano.
@@ -118,46 +109,49 @@ pub fn linha(traco: &[[f64; 2]]) -> Option<Value> {
     }
 }
 
-fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>], geo: &[String], n_satelites: usize) -> String {
+fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> String {
     let dias = ((e.t1 - e.t0) / 86_400.0).round();
-    let sats = |c: Categoria| {
-        let mut v: Vec<&str> = todas.iter().filter(|p| p.categoria == c).map(|p| p.satelite.as_str()).collect();
-        v.sort_unstable();
-        v.dedup();
-        v
-    };
-    let mut distintos: Vec<u64> = todas.iter().filter(|p| p.categoria != Categoria::PassouPorCima).map(|p| p.norad).collect();
-    distintos.sort_unstable();
-    distintos.dedup();
-    let n_imagens: usize = por_passagem.iter().map(Vec::len).sum();
+    let n_imagens = por_passagem.iter().filter(|i| !i.is_empty()).count();
     let mut t = format!(
-        "Nos últimos {dias:.0} dias, {} satélites de observação podem ter visto {}; {n_imagens} imagens públicas foram encontradas.\n\n",
-        distintos.len(),
+        "Nos últimos {dias:.0} dias, {} passagens de satélites de imagem gratuita viram {}; {n_imagens} delas têm a imagem no Planetary Computer (hora local):\n\n",
+        todas.len(),
         e.nome
     );
-    let explica = [
-        (Categoria::Fotografou, "há imagem pública"),
-        (Categoria::Provavel, "a faixa da câmera cobriu o lugar, sem imagem publicada"),
-        (Categoria::PoderiaApontar, "câmera apontável ao alcance"),
-        (Categoria::PassouPorCima, "cruzou o céu, a mais de 45° do horizonte"),
-    ];
-    for (c, o_que) in explica {
-        let n = todas.iter().filter(|p| p.categoria == c).count();
-        let s = sats(c);
-        let exemplos = match s.len() {
-            0 => String::new(),
-            1..=6 => format!(": {}", s.join(", ")),
-            _ => format!(": {} e mais {}", s[..6].join(", "), s.len() - 6),
+    // As de resolução fina uma a uma, das mais novas às mais velhas; as diárias, resumidas.
+    let mut ordem: Vec<usize> = (0..todas.len()).collect();
+    ordem.sort_by(|&a, &b| todas[b].t.total_cmp(&todas[a].t));
+    let mut diarias: Vec<(&str, usize)> = Vec::new();
+    for i in ordem {
+        let p = &todas[i];
+        let Some(g) = gratuitos::de(&p.satelite) else { continue };
+        if g.diario {
+            match diarias.iter_mut().find(|(s, _)| *s == p.satelite) {
+                Some((_, n)) => *n += 1,
+                None => diarias.push((&p.satelite, 1)),
+            }
+            continue;
+        }
+        let imagem = match por_passagem[i].first() {
+            Some(img) => {
+                format!("imagem no Planetary Computer{}", img.nuvem.map(|n| format!(", {n:.0}% de nuvem na cena")).unwrap_or_default())
+            }
+            // Gravou se estava no plano da missão: a imagem, então, está no catálogo dela.
+            None if g.condicao.is_some() => format!("se gravou: {}", g.onde),
+            None => format!("ainda não no Planetary Computer: {}", g.onde),
         };
-        t += &format!("- {n} passagens: {} ({o_que}){exemplos}\n", c.texto());
+        t += &format!("- {} · {} · {imagem}\n", tempo::curto(p.t, e.fuso), p.satelite);
     }
-    if !geo.is_empty() {
-        t += &format!("\n{} geoestacionários veem o lugar o tempo todo: {}.\n", geo.len(), geo.join(", "));
+    if !diarias.is_empty() {
+        let lista: Vec<String> = diarias.iter().map(|(s, n)| format!("{s} {n}×")).collect();
+        t += &format!(
+            "\nDiários de resolução grossa (MODIS, VIIRS, Sentinel-3): {}; no NASA Worldview e no Copernicus Browser.\n",
+            lista.join(", ")
+        );
     }
     if let Some(n) = e.nuvem_agora {
         t += &format!("Nuvens agora: {n:.0}%.\n");
     }
-    t += &format!("\n{n_satelites} satélites calculados (CelesTrak, SGP4); imagens do Microsoft Planetary Computer.");
+    t += "\nÓrbitas do CelesTrak, calculadas com o SGP4.";
     t
 }
 

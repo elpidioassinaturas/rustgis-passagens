@@ -1,14 +1,14 @@
 {
   "id": "passagens",
   "name": "Passagens de satélites",
-  "version": "0.3.0",
-  "description": "Quais satélites passaram sobre um lugar nos últimos dias e quais imagens públicas eles fizeram dele; as imagens do Sentinel-2 do lugar na barra de tempo, só as datas de céu limpo no próprio lugar; e quando os satélites de imagem gratuita passam de novo, com a nuvem prevista. Órbitas do CelesTrak calculadas com o SGP4; imagens do Microsoft Planetary Computer e do Earth Search.",
+  "version": "0.4.0",
+  "description": "Os satélites de imagem gratuita (Sentinel-1, 2 e 3, Landsat, CBERS, Amazonia-1, MODIS, VIIRS) sobre um lugar clicado no mapa: as passagens dos últimos dias e as imagens públicas que elas fizeram, as imagens de céu limpo na barra de tempo, e as próximas passagens com a nuvem prevista. Órbitas do CelesTrak com o SGP4; imagens do Planetary Computer e do Earth Search.",
   "author": "Elpídio Filho",
   "homepage": "https://github.com/elpidioassinaturas/rustgis-passagens",
   "license": "MIT",
   "entry": "plugin.wasm",
   "abi": 1,
-  "minRustgisVersion": "0.6.0",
+  "minRustgisVersion": "0.7.0",
   "permissions": [
     "edit",
     "files",
@@ -18,22 +18,22 @@
     {
       "id": "passagens",
       "label": "Passagens\nde satélites",
-      "help": "Os satélites que passaram sobre um lugar nos últimos dias (o centro do mapa, ou a latitude e a longitude dadas), cada passagem como o traço no chão, colorido pelo que o satélite pode ter feito: fotografou (há imagem pública), provavelmente fotografou, poderia ter apontado, passou por cima. Traz para o mapa a imagem mais recente com pouca nuvem.",
+      "help": "As passagens dos satélites de imagem gratuita que viram um lugar nos últimos dias (o clicado no painel, o centro do mapa, ou a latitude e a longitude dadas), cada uma como o traço no chão: fotografou (a imagem está no Planetary Computer) ou provavelmente fotografou (a faixa da câmera cobriu o lugar; a imagem pode estar no INPE, na NASA ou no Copernicus). Traz para o mapa a imagem mais recente com pouca nuvem.",
       "icon": "locate",
       "timeout": 120,
-      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum para o centro do mapa), \"dias\"?: 1 a 14 (padrão 7), \"nome\"?: o nome do lugar (padrão: o do Photon), \"imagem\"?: bool (traz a imagem mais recente com pouca nuvem; padrão true)}",
+      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 1 a 14 (padrão 7), \"nome\"?: o nome do lugar (padrão: o do Photon), \"imagem\"?: bool (traz a imagem mais recente com pouca nuvem; padrão true)}",
       "form": [
         {
           "name": "lat",
           "label": "Latitude",
           "kind": "number",
-          "help": "Em graus, negativa ao sul (-20.695). Vazia: o centro do mapa."
+          "help": "Em graus, negativa ao sul (-20.695). Vazia: o lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "lon",
           "label": "Longitude",
           "kind": "number",
-          "help": "Em graus, negativa a oeste (-42.887). Vazia: o centro do mapa."
+          "help": "Em graus, negativa a oeste (-42.887). Vazia: o lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "dias",
@@ -62,19 +62,19 @@
       "help": "As imagens do Sentinel-2 de um lugar (o centro do mapa, ou a latitude e a longitude dadas) na barra de tempo, um recorte em volta dele em 10 m, só as datas com o céu limpo no próprio lugar (pela classificação da cena no pixel do lugar, não pela nuvem da cena inteira). Desktop e rustgis-cli.",
       "icon": "history",
       "timeout": 120,
-      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum para o centro do mapa), \"dias\"?: 5 a 365 (padrão 60), \"lado\"?: km, 1 a 20 (padrão 5), \"quantas\"?: 1 a 10 (as datas limpas mais recentes na barra; padrão 6), \"nome\"?: o nome do lugar}",
+      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 5 a 365 (padrão 60), \"lado\"?: km, 1 a 20 (padrão 5), \"quantas\"?: 1 a 10 (as datas limpas mais recentes na barra; padrão 6), \"nome\"?: o nome do lugar}",
       "form": [
         {
           "name": "lat",
           "label": "Latitude",
           "kind": "number",
-          "help": "Em graus, negativa ao sul (-20.695). Vazia: o centro do mapa."
+          "help": "Em graus, negativa ao sul (-20.695). Vazia: o lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "lon",
           "label": "Longitude",
           "kind": "number",
-          "help": "Em graus, negativa a oeste (-42.887). Vazia: o centro do mapa."
+          "help": "Em graus, negativa a oeste (-42.887). Vazia: o lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "dias",
@@ -111,19 +111,19 @@
       "help": "Quando os satélites de imagem gratuita (Sentinel-2, Landsat, Sentinel-1, CBERS, Amazonia-1 e, se pedir, MODIS, VIIRS e Sentinel-3) passam sobre um lugar nos próximos dias, com a nuvem prevista pelo Open-Meteo para a hora de cada passagem. Para planejar o campo no dia da imagem.",
       "icon": "calendar",
       "timeout": 120,
-      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum para o centro do mapa), \"dias\"?: 1 a 16 (padrão 10), \"nome\"?: o nome do lugar, \"diarios\"?: bool (inclui MODIS, VIIRS e Sentinel-3; padrão false)}",
+      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 1 a 16 (padrão 10), \"nome\"?: o nome do lugar, \"diarios\"?: bool (inclui MODIS, VIIRS e Sentinel-3; padrão false)}",
       "form": [
         {
           "name": "lat",
           "label": "Latitude",
           "kind": "number",
-          "help": "Em graus, negativa ao sul (-20.695). Vazia: o centro do mapa."
+          "help": "Em graus, negativa ao sul (-20.695). Vazia: o lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "lon",
           "label": "Longitude",
           "kind": "number",
-          "help": "Em graus, negativa a oeste (-42.887). Vazia: o centro do mapa."
+          "help": "Em graus, negativa a oeste (-42.887). Vazia: o lugar escolhido no painel, ou o centro do mapa."
         },
         {
           "name": "dias",
@@ -152,6 +152,37 @@
       "help": "Põe no mapa a imagem da passagem selecionada (uma linha de categoria fotografou numa camada do Passagens).",
       "icon": "image",
       "params": "{}"
+    },
+    {
+      "id": "marcar",
+      "label": "Escolher\nno mapa",
+      "help": "O lugar clicado no mapa pelo painel.",
+      "icon": "locate",
+      "params": "{\"panel\": {\"lugar\": {\"lon\", \"lat\"}}}"
+    },
+    {
+      "id": "ver-imagens",
+      "label": "Imagens\nlimpas",
+      "help": "As imagens de céu limpo do Sentinel-2 do lugar escolhido na barra de tempo (60 dias, 6 datas).",
+      "icon": "history",
+      "timeout": 120,
+      "params": "{} (o lugar do painel)"
+    },
+    {
+      "id": "ver-proximas",
+      "label": "Próximas\nimagens",
+      "help": "As próximas passagens dos satélites de imagem gratuita sobre o lugar escolhido, com a nuvem prevista (10 dias).",
+      "icon": "calendar",
+      "timeout": 120,
+      "params": "{} (o lugar do painel)"
+    },
+    {
+      "id": "ver-passagens",
+      "label": "Passagens\nrecentes",
+      "help": "As passagens dos últimos 7 dias sobre o lugar escolhido e as imagens que fizeram.",
+      "icon": "locate",
+      "timeout": 120,
+      "params": "{} (o lugar do painel)"
     }
   ],
   "tools": [
@@ -316,5 +347,69 @@
         }
       ]
     }
-  ]
+  ],
+  "panel": {
+    "title": "Satélites sobre um lugar",
+    "icon": "locate",
+    "help": "Clique no mapa para escolher o lugar e veja as imagens de satélite gratuitas dele.",
+    "items": [
+      {
+        "kind": "pick",
+        "id": "lugar",
+        "label": "Escolher o lugar no mapa",
+        "command": "marcar",
+        "help": "Clique aqui e depois no mapa."
+      },
+      {
+        "kind": "text",
+        "id": "onde",
+        "label": "Lugar",
+        "text": "Nenhum lugar escolhido: clique em Escolher o lugar no mapa e depois no mapa."
+      },
+      {
+        "kind": "button",
+        "command": "ver-imagens",
+        "label": "Imagens limpas",
+        "help": "As imagens de céu limpo do Sentinel-2 dos últimos 60 dias, na barra de tempo."
+      },
+      {
+        "kind": "button",
+        "command": "ver-proximas",
+        "label": "Próximas",
+        "help": "As próximas passagens, com a nuvem prevista para cada uma."
+      },
+      {
+        "kind": "button",
+        "command": "ver-passagens",
+        "label": "Recentes",
+        "help": "As passagens dos últimos 7 dias e as imagens que fizeram."
+      },
+      {
+        "kind": "text",
+        "id": "resultado",
+        "label": "Resultado",
+        "text": "Escolha um lugar no mapa."
+      }
+    ]
+  },
+  "tab": {
+    "label": "Satélites",
+    "groups": [
+      {
+        "label": "Lugar",
+        "items": [
+          "panel"
+        ]
+      },
+      {
+        "label": "Com mais opções",
+        "items": [
+          "imagens",
+          "proximas",
+          "passagens",
+          "imagem"
+        ]
+      }
+    ]
+  }
 }

@@ -18,7 +18,7 @@ use crate::perfis::COLECOES;
 use crate::proximas::{self, Ceu};
 use crate::tempo;
 
-const PREFIXO: &str = "Passagens: ";
+use crate::nomes::{PREFIXO, PREFIXO_IMAGENS, PREFIXO_PROXIMAS};
 
 /// O STAC do Planetary Computer.
 const STAC: &str = "https://planetarycomputer.microsoft.com/api/stac/v1";
@@ -33,12 +33,6 @@ const CELESTRAK: [&str; 7] =
 /// plugin, que baixa do CelesTrak uma vez por dia. Assim ninguém é bloqueado pelo CelesTrak, e o
 /// GitHub deixa o app web ler o arquivo (o CelesTrak não manda CORS).
 const ORBITAS: &str = "https://raw.githubusercontent.com/elpidioassinaturas/rustgis-passagens/orbitas/orbitas.json";
-
-/// O prefixo das camadas do comando `proximas`.
-const PREFIXO_PROXIMAS: &str = "Próximas imagens: ";
-
-/// O prefixo do cubo do comando `imagens`.
-const PREFIXO_IMAGENS: &str = "Imagens: ";
 
 /// Quantas datas o comando `imagens` confere no pixel do lugar. Cada consulta leva 1 a 2 s, um
 /// plugin tem 60 s de consultas por chamada, e no app desktop um comando para em 120 s (cada
@@ -839,6 +833,7 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
     let ultima = passos.last().cloned().unwrap_or_default();
     host::run("time.set", json!({"dates": passos, "date": ultima, "speed": 1500, "loop": true, "format": "DD/MM/YYYY"}))?;
     let _ = host::run("map.goToXY", json!({"lon": lon, "lat": lat, "scale": (lado * 5000.0).round()}));
+    imagens_por_baixo(&nome);
     relatorio += &if passos.len() == 1 {
         format!(
             "\nA data de céu limpo mais recente está na barra de tempo (View › Time), na camada {camada}, e o mapa a mostra agora ({ultima})."
@@ -890,6 +885,31 @@ fn remover(nomes: &[&str]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Põe as imagens do lugar `nome` por baixo das linhas e do ponto dele, que sem isso ficavam
+/// escondidos: uma imagem nova (raster ou cubo) entra por cima de tudo.
+///
+/// As camadas vetoriais do lugar sobem para o topo, e os cubos da barra de tempo do lugar descem
+/// para logo abaixo delas: um cubo é desenhado sobre a camada que estava no topo quando ele entrou,
+/// e pode ser uma dessas. Os cubos ficam na ordem em que estavam (com a mesma posição pedida, o
+/// que vai depois fica por baixo). Sem efeito para o resultado do comando: a ordem é só a vista.
+fn imagens_por_baixo(nome: &str) {
+    let Ok(camadas) = host::layers() else { return };
+    let no_mapa: Vec<&str> = camadas.as_array().into_iter().flatten().filter_map(|l| l["name"].as_str()).collect();
+    let mut no_topo = 0;
+    for camada in nomes::camadas_do_lugar(nome) {
+        if no_mapa.contains(&camada.as_str()) && host::run("layer.move", json!({"layer": camada, "to": 0})).is_ok() {
+            no_topo += 1;
+        }
+    }
+    let Ok(projeto) = host::run("info.project", json!({})) else { return };
+    let cubo = format!("{PREFIXO_IMAGENS}{nome}");
+    for t in projeto["tileLayers"].as_array().into_iter().flatten() {
+        if let Some(n) = t["name"].as_str().filter(|n| nomes::data_do_cubo(n, &cubo).is_some()) {
+            let _ = host::run("map.setTiles", json!({"name": n, "to": no_topo}));
+        }
+    }
 }
 
 /// As cores por categoria.
@@ -965,6 +985,7 @@ fn adicionar_imagem(i: &Imagem, lugar: &str, satelite: &str, quando: &str, area:
     if entrou != nome {
         host::run("layer.rename", json!({"layer": entrou, "name": nome}))?;
     }
+    imagens_por_baixo(lugar);
     Ok(Some(nome))
 }
 

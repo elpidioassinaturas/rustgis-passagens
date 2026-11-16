@@ -1,5 +1,26 @@
 //! Os nomes das camadas.
 
+/// O prefixo das camadas do comando `passagens`.
+pub const PREFIXO: &str = "Passagens: ";
+
+/// O prefixo das camadas do comando `proximas`.
+pub const PREFIXO_PROXIMAS: &str = "Próximas imagens: ";
+
+/// O prefixo do cubo do comando `imagens`.
+pub const PREFIXO_IMAGENS: &str = "Imagens: ";
+
+/// As camadas de linhas e de ponto do lugar `nome`, na ordem em que sobem para o topo quando uma
+/// imagem entra: cada uma sobe por cima da anterior, e assim os pontos ficam por cima das linhas,
+/// e as Passagens por cima das Próximas imagens.
+pub fn camadas_do_lugar(nome: &str) -> [String; 4] {
+    [
+        format!("{PREFIXO_PROXIMAS}{nome}"),
+        format!("{PREFIXO_PROXIMAS}{nome} (lugar)"),
+        format!("{PREFIXO}{nome}"),
+        format!("{PREFIXO}{nome} (lugar)"),
+    ]
+}
+
 /// Se o fim de um nome é o número que o RustGIS põe numa camada de nome repetido: " (2)", " (3)"...
 pub fn copia(fim: &str) -> bool {
     fim.strip_prefix(" (").and_then(|r| r.strip_suffix(')')).is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
@@ -29,6 +50,18 @@ mod testes {
         assert!(!copia(" (a)"));
         assert!(!copia(" (lugar)"));
         assert!(!copia("2)"));
+    }
+
+    #[test]
+    fn camadas_que_sobem_por_cima_das_imagens() {
+        let c = camadas_do_lugar("Viçosa");
+        // O último a subir fica no topo: o ponto das Passagens.
+        assert_eq!(c[3], "Passagens: Viçosa (lugar)");
+        assert_eq!(c[2], "Passagens: Viçosa");
+        assert_eq!(c[1], "Próximas imagens: Viçosa (lugar)");
+        assert_eq!(c[0], "Próximas imagens: Viçosa");
+        // A imagem raster do lugar não é uma delas: ela fica por baixo.
+        assert!(!c.iter().any(|n| n.starts_with("Passagens: Viçosa,")));
     }
 
     #[test]

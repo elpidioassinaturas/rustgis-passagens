@@ -1,0 +1,26 @@
+[package]
+name = "passagens"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Plugin Passagens: quais satélites passaram sobre um lugar nos últimos dias, e as imagens
+# públicas que eles fizeram dele.
+#   cargo build --release --target wasm32-unknown-unknown
+#   python scripts/package.py
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+chrono = { version = "0.4", default-features = false }
+rustgis-plugin = { git = "https://github.com/opengeos/rustgis-plugins" }
+serde_json = "1"
+sgp4 = "2.4"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

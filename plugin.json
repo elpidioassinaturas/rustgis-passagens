@@ -1,0 +1,150 @@
+{
+  "id": "passagens",
+  "name": "Passagens de satélites",
+  "version": "0.1.0",
+  "description": "Quais satélites passaram sobre um lugar nos últimos dias e quais imagens públicas eles fizeram dele: órbitas do CelesTrak calculadas com o SGP4, imagens do Sentinel-2, do Landsat e do Sentinel-1 no Microsoft Planetary Computer.",
+  "author": "Elpídio Filho",
+  "homepage": "https://github.com/elpidioassinaturas/rustgis-passagens",
+  "license": "MIT",
+  "entry": "plugin.wasm",
+  "abi": 1,
+  "minRustgisVersion": "0.6.0",
+  "permissions": [
+    "edit",
+    "files",
+    "network"
+  ],
+  "commands": [
+    {
+      "id": "passagens",
+      "label": "Passagens\nde satélites",
+      "help": "Os satélites que passaram sobre um lugar nos últimos dias (o centro do mapa, ou a latitude e a longitude dadas), cada passagem como o traço no chão, colorido pelo que o satélite pode ter feito: fotografou (há imagem pública), provavelmente fotografou, poderia ter apontado, passou por cima. Traz para o mapa a imagem mais recente com pouca nuvem.",
+      "icon": "locate",
+      "timeout": 120,
+      "params": "{\"lat\"?: graus, \"lon\"?: graus (os dois, ou nenhum para o centro do mapa), \"dias\"?: 1 a 14 (padrão 7), \"nome\"?: o nome do lugar (padrão: o do Photon), \"imagem\"?: bool (traz a imagem mais recente com pouca nuvem; padrão true)}",
+      "form": [
+        {
+          "name": "lat",
+          "label": "Latitude",
+          "kind": "number",
+          "help": "Em graus, negativa ao sul (-20.695). Vazia: o centro do mapa."
+        },
+        {
+          "name": "lon",
+          "label": "Longitude",
+          "kind": "number",
+          "help": "Em graus, negativa a oeste (-42.887). Vazia: o centro do mapa."
+        },
+        {
+          "name": "dias",
+          "label": "Dias",
+          "kind": "number",
+          "default": 7,
+          "help": "Quantos dias para trás, de 1 a 14."
+        },
+        {
+          "name": "nome",
+          "label": "Nome do lugar",
+          "kind": "text",
+          "help": "O nome das camadas. Vazio: o nome que o Photon (OpenStreetMap) dá ao lugar."
+        },
+        {
+          "name": "imagem",
+          "label": "Trazer a imagem mais recente com pouca nuvem",
+          "kind": "bool",
+          "default": true
+        }
+      ]
+    },
+    {
+      "id": "imagem",
+      "label": "Imagem da\npassagem",
+      "help": "Põe no mapa a imagem da passagem selecionada (uma linha de categoria fotografou numa camada do Passagens).",
+      "icon": "image",
+      "params": "{}"
+    }
+  ],
+  "tools": [
+    {
+      "id": "calcular",
+      "name": "Calcular passagens",
+      "toolbox": "Passagens de satélites",
+      "summary": "O cálculo que o comando Passagens de satélites usa: as órbitas (SGP4) e as imagens que ele buscou viram a camada de passagens. Rode o comando, não esta ferramenta.",
+      "params": [
+        {
+          "name": "gp",
+          "label": "Elementos orbitais (JSON)",
+          "kind": "text",
+          "help": "Os elementos GP do CelesTrak, em JSON, que o comando passa.",
+          "required": true
+        },
+        {
+          "name": "imagens",
+          "label": "Imagens (JSON)",
+          "kind": "text",
+          "help": "Os itens do STAC que o comando achou.",
+          "required": true
+        },
+        {
+          "name": "lat",
+          "label": "Latitude",
+          "kind": "number",
+          "help": "Graus.",
+          "required": true
+        },
+        {
+          "name": "lon",
+          "label": "Longitude",
+          "kind": "number",
+          "help": "Graus.",
+          "required": true
+        },
+        {
+          "name": "inicio",
+          "label": "Início",
+          "kind": "number",
+          "help": "Segundos desde 1970 (UTC).",
+          "required": true
+        },
+        {
+          "name": "fim",
+          "label": "Fim",
+          "kind": "number",
+          "help": "Segundos desde 1970 (UTC).",
+          "required": true
+        },
+        {
+          "name": "fuso",
+          "label": "Fuso",
+          "kind": "number",
+          "help": "Segundos à frente do UTC."
+        },
+        {
+          "name": "lugar",
+          "label": "Lugar",
+          "kind": "text",
+          "help": "O nome do lugar.",
+          "required": true
+        },
+        {
+          "name": "camada",
+          "label": "Camada",
+          "kind": "text",
+          "help": "O nome da camada de saída."
+        },
+        {
+          "name": "camadaLugar",
+          "label": "Camada do lugar",
+          "kind": "text",
+          "help": "O nome da camada do ponto, que leva o relatório."
+        },
+        {
+          "name": "nuvemAgora",
+          "label": "Nuvem agora",
+          "kind": "number",
+          "help": "Em %."
+        }
+      ]
+    }
+  ]
+}

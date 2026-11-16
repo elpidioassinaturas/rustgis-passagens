@@ -194,9 +194,19 @@ impl Satelite {
                 continue;
             };
             let (passo, transversal) = passo_angular(r, v, lugar.ecef);
-            // Longe do mínimo (no começo): vai até ele antes de decidir, porque o lugar gira com a
-            // Terra (até 12° em meia órbita) e a distância transversal muda.
             if passo.abs() > 300.0 {
+                // Muito longe do plano da órbita (perto do polo dela, onde a projeção do lugar no
+                // plano degenera e o passo oscila de um lado para o outro sem chegar ao mínimo):
+                // pula as órbitas que não podem chegar perto, sem procurar o mínimo. As que ficam
+                // de fora são as de antes de t + (pular − ½)·p, e a distância transversal cai no
+                // máximo `por_orbita` por órbita.
+                let pular = ((transversal - longe) / por_orbita + 0.5).floor();
+                if pular >= 1.0 {
+                    t += pular * p;
+                    continue;
+                }
+                // Longe do mínimo (no começo): vai até ele antes de decidir, porque o lugar gira
+                // com a Terra (até 12° em meia órbita) e a distância transversal muda.
                 t += passo;
                 continue;
             }
@@ -399,6 +409,33 @@ pub mod testes {
             assert!(minimos.iter().any(|m| (x - m).abs() < 12.0) || dist(*x) > 2000.0, "sobrou {}", tempo::iso(*x));
         }
         assert!(minimos.len() >= 10, "{}", minimos.len());
+    }
+
+    #[test]
+    fn perto_do_polo_da_orbita() {
+        // Teresina (−5°) e Fortaleza (−3,7°) passam perto do polo da órbita do Sentinel-2
+        // (inclinação 98,6°: o polo fica perto de 8,6°), onde a busca oscilava sem avançar e
+        // desistia do resto do período depois da primeira aproximação.
+        let sat = s2b();
+        let t0 = tempo::ler("2026-11-16T12:00:00Z").unwrap();
+        let t1 = t0 + 16.0 * 86_400.0;
+        for (lon, lat) in [(-42.8019, -5.0892), (-38.5267, -3.7319)] {
+            let lugar = Lugar::new(lon, lat);
+            let a = sat.aproximacoes(&lugar, t0, t1, 2100.0);
+            let dist = |t: f64| norma(sub(sat.estado(t).unwrap().0, lugar.ecef));
+            let mut minimos = Vec::new();
+            let mut t = t0 + 10.0;
+            while t < t1 - 10.0 {
+                if dist(t) < 2000.0 && dist(t) < dist(t - 10.0) && dist(t) <= dist(t + 10.0) {
+                    minimos.push(t);
+                }
+                t += 10.0;
+            }
+            for m in &minimos {
+                assert!(a.iter().any(|x| (x - m).abs() < 12.0), "{lat}: faltou {}", tempo::iso(*m));
+            }
+            assert!(minimos.len() >= 20, "{lat}: {}", minimos.len());
+        }
     }
 
     #[test]

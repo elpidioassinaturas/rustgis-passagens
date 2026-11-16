@@ -181,7 +181,7 @@ fn marcar(req: &Request) -> Result<Value, String> {
         }
         _ => {
             return Ok(
-                json!({"panel": {"items": {"onde": {"text": "Nenhum lugar escolhido: busque o município na lista, ou clique em Escolher no mapa e depois no mapa."}}}}),
+                json!({"panel": {"items": {"onde": {"text": "Nenhum lugar escolhido: busque o município na lista, ou clique em Ou clicar no mapa e depois no mapa."}}}}),
             );
         }
     };
@@ -839,10 +839,16 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
     let ultima = passos.last().cloned().unwrap_or_default();
     host::run("time.set", json!({"dates": passos, "date": ultima, "speed": 1500, "loop": true, "format": "DD/MM/YYYY"}))?;
     let _ = host::run("map.goToXY", json!({"lon": lon, "lat": lat, "scale": (lado * 5000.0).round()}));
-    relatorio += &format!(
-        "\nAs {} datas de céu limpo mais recentes estão na barra de tempo (View › Time), uma camada {camada} por data, e o mapa mostra agora a de {ultima}. O ▶ da barra passa as datas uma a uma; Exportar animação (time.export) faz um GIF.",
-        passos.len()
-    );
+    relatorio += &if passos.len() == 1 {
+        format!(
+            "\nA data de céu limpo mais recente está na barra de tempo (View › Time), na camada {camada}, e o mapa a mostra agora ({ultima})."
+        )
+    } else {
+        format!(
+            "\nAs {} datas de céu limpo mais recentes estão na barra de tempo (View › Time), uma camada {camada} por data, e o mapa mostra agora a de {ultima}. O ▶ da barra passa as datas uma a uma; Exportar animação (time.export) faz um GIF.",
+            passos.len()
+        )
+    };
     if !falhas.is_empty() {
         relatorio += &format!("\nFicaram de fora: {}.", falhas.join("; "));
     }
@@ -918,13 +924,26 @@ fn adicionar_imagem(i: &Imagem, lugar: &str, satelite: &str, quando: &str, area:
             let mut p = json!({"url": i.url, "name": nome});
             match i.colecao.as_str() {
                 "sentinel-2-l2a" => p["asset"] = json!("visual"),
-                "sentinel-1-grd" => p["asset"] = json!("vv"),
+                // O GRD não é georreferenciado: a mesma cena no RTC.
+                "sentinel-1-grd" => {
+                    p["url"] = json!(
+                        imagens::endereco_rtc(&i.url).ok_or_else(|| format!("o endereço {} não é de um item do Sentinel-1 GRD", i.url))?
+                    );
+                    p["asset"] = json!("vv");
+                }
                 _ => {}
             }
             p
         }
     };
-    let r = host::run("stac.addAsset", p)?;
+    let radar = i.colecao == "sentinel-1-grd";
+    let r = host::run("stac.addAsset", p).map_err(|e| {
+        if radar {
+            format!("não deu para abrir a cena de radar corrigida do terreno (sentinel-1-rtc) do Planetary Computer, que pode ainda não ter sido publicada ({e})")
+        } else {
+            e
+        }
+    })?;
     // Chegando: o comando roda de novo quando a imagem estiver no mapa.
     if esperando(&r) {
         return Ok(None);

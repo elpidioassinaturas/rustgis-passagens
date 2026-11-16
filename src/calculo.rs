@@ -114,11 +114,16 @@ pub fn linha(traco: &[[f64; 2]]) -> Option<Value> {
 fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> String {
     let dias = ((e.t1 - e.t0) / 86_400.0).round();
     let n_imagens = por_passagem.iter().filter(|i| !i.is_empty()).count();
-    let mut t = format!(
-        "Nos últimos {dias:.0} dias, {} passagens de satélites de imagem gratuita viram {}; {n_imagens} delas têm a imagem no Planetary Computer (hora local):\n\n",
-        todas.len(),
-        e.nome
-    );
+    let passagens = match todas.len() {
+        1 => "1 passagem de satélite de imagem gratuita viu".to_string(),
+        n => format!("{n} passagens de satélites de imagem gratuita viram"),
+    };
+    let imagens = match n_imagens {
+        0 => "nenhuma delas tem a imagem no Planetary Computer".to_string(),
+        1 => "1 delas tem a imagem no Planetary Computer".to_string(),
+        n => format!("{n} delas têm a imagem no Planetary Computer"),
+    };
+    let mut t = format!("Nos últimos {dias:.0} dias, {passagens} {}; {imagens} (hora local):\n\n", e.nome);
     // As de resolução fina uma a uma, das mais novas às mais velhas; as diárias, resumidas.
     let mut ordem: Vec<usize> = (0..todas.len()).collect();
     ordem.sort_by(|&a, &b| todas[b].t.total_cmp(&todas[a].t));

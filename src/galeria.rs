@@ -85,9 +85,9 @@ pub struct Data {
 /// O relatório: a linha do tempo, da mais nova à mais velha.
 pub fn relatorio(nome: &str, dias: f64, datas: &[Data], fuso: f64, satelite: impl Fn(&str) -> String) -> String {
     let limpas = datas.iter().filter(|d| d.ceu == Ceu::Limpo).count();
+    let imagens = if datas.len() == 1 { "1 imagem".to_string() } else { format!("{} imagens", datas.len()) };
     let mut t = format!(
-        "{} imagens do Sentinel-2 de {nome} nos últimos {dias:.0} dias; {limpas} com o céu limpo no lugar (conferido no pixel do lugar, não na cena inteira).\n\n",
-        datas.len()
+        "{imagens} do Sentinel-2 de {nome} nos últimos {dias:.0} dias; {limpas} com o céu limpo no lugar (conferido no pixel do lugar, não na cena inteira).\n\n"
     );
     for d in datas {
         let cena = d.imagem.nuvem.map(|n| format!(" · cena com {n:.0}% de nuvem")).unwrap_or_default();
@@ -125,6 +125,7 @@ mod testes {
         let datas = vec![Data { imagem: v[1].clone(), ceu: Ceu::Limpo, classe: "vegetação" }];
         let r = relatorio("Viçosa", 60.0, &datas, -3.0 * 3600.0, |id| id.to_string());
         assert!(r.contains("1 com o céu limpo"), "{r}");
+        assert!(r.starts_with("1 imagem do Sentinel-2 de Viçosa"), "{r}");
         assert!(r.contains("sex 09/10 10:02"), "{r}");
     }
 }

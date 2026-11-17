@@ -7,8 +7,7 @@ Inspirado no [watched.earth](https://www.watched.earth).
 
 ## Uso: o painel
 
-Na aba **Plugins**, o primeiro botão do grupo **Passagens de satélites**, **Satélites sobre um
-lugar**, abre o painel:
+Na aba **Satélites**, o botão **Satélites sobre um lugar** (grupo **Lugar**) abre o painel:
 
 1. O lugar: o **Município**, digitando parte do nome na busca da lista (as UFs, cada uma com os
    seus municípios) e escolhendo-o; ou **Ou clicar no mapa** e um clique no mapa. O painel mostra
@@ -20,8 +19,11 @@ lugar**, abre o painel:
    - **Recentes:** as passagens dos últimos 7 dias e as imagens que elas fizeram.
 3. O resultado aparece no painel, e as camadas no mapa.
 
-Os botões **Passagens de satélites**, **Imagens do lugar** e **Próximas imagens** do grupo são os
-mesmos comandos com um formulário (município, dias, tamanho do recorte). O **Município** é o nome
+Os botões do painel e os comandos que só o painel usa (escolher o lugar, o estado do painel) e as
+ferramentas de cálculo não ficam na aba; a busca de comandos acha todos eles.
+
+Os botões **Passagens de satélites**, **Imagens do lugar** e **Próximas imagens** do grupo **Com
+mais opções** são os mesmos comandos com um formulário (município, dias, tamanho do recorte). O **Município** é o nome
 (`Ubaporanga`, ou `Viçosa/MG` quando o nome se repete) ou o código do IBGE; vazio, vale o último
 lugar escolhido no painel, ou o centro do mapa. O município de um formulário vale só para ele: o
 lugar dos botões do painel muda só no painel. Os municípios (com a sede de cada um) vão dentro do
@@ -56,8 +58,8 @@ rustgis-cli run --sample --yes --cmd 'plugin:passagens/passagens={"lat":-20.695,
 
 Parâmetros: o lugar é o centro do mapa, ou `lat` e `lon`; `nome` dá o nome das camadas (padrão:
 o do Photon). Passagens: `dias` de 1 a 14 (padrão 7) e `imagem` (padrão `true`). Imagens do
-lugar: `dias` de 5 a 365 (padrão 60; o céu é conferido nas 16 datas mais novas, pelo limite de
-tempo de um comando), `lado` do recorte em km (padrão 5) e `quantas` datas limpas na barra (padrão
+lugar: `dias` de 5 a 365 (padrão 60; lê as 100 cenas mais recentes, e o céu é conferido nas 48
+datas mais novas, pelo limite de consultas de um comando), `lado` do recorte em km (padrão 5) e `quantas` datas limpas na barra (padrão
 6, até 10; cada uma leva uns 8 s). Próximas
 imagens: `dias` de 1 a 16 (padrão 10) e `diarios` (padrão `false`), que inclui os de resolução
 grossa.

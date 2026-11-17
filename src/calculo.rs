@@ -30,6 +30,10 @@ pub struct Entrada<'a> {
     pub nuvem_agora: Option<f64>,
     /// De onde vieram as órbitas, para o relatório ("do CelesTrak, baixadas agora").
     pub orbitas: &'a str,
+    /// As coleções ópticas ([`perfis::OPTICAS`]) sem nenhuma imagem do lugar em
+    /// [`perfis::DIAS_COBERTURA`] dias: os satélites delas não gravam ali (o mar aberto), e as
+    /// passagens deles não vão virar imagem.
+    pub sem_cobertura: &'a [String],
 }
 
 /// O resultado: a camada (GeoJSON) e o relatório.
@@ -114,15 +118,23 @@ pub fn linha(traco: &[[f64; 2]]) -> Option<Value> {
 fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> String {
     let dias = ((e.t1 - e.t0) / 86_400.0).round();
     let n_imagens = por_passagem.iter().filter(|i| !i.is_empty()).count();
-    let mut t = format!(
-        "Nos últimos {dias:.0} dias, {} passagens de satélites de imagem gratuita viram {}; {n_imagens} delas têm a imagem no Planetary Computer (hora local):\n\n",
-        todas.len(),
-        e.nome
-    );
+    let passagens = match todas.len() {
+        1 => "1 passagem de satélite de imagem gratuita viu".to_string(),
+        n => format!("{n} passagens de satélites de imagem gratuita viram"),
+    };
+    let imagens = match n_imagens {
+        0 => "nenhuma delas tem a imagem no Planetary Computer".to_string(),
+        1 => "1 delas tem a imagem no Planetary Computer".to_string(),
+        n => format!("{n} delas têm a imagem no Planetary Computer"),
+    };
+    // "No último dia" ou "Nos últimos 7 dias", no começo da frase.
+    let periodo = tempo::periodo(dias, false).replacen('n', "N", 1);
+    let mut t = format!("{periodo}, {passagens} {}; {imagens} (hora local):\n\n", e.nome);
     // As de resolução fina uma a uma, das mais novas às mais velhas; as diárias, resumidas.
     let mut ordem: Vec<usize> = (0..todas.len()).collect();
     ordem.sort_by(|&a, &b| todas[b].t.total_cmp(&todas[a].t));
     let mut diarias: Vec<(&str, usize)> = Vec::new();
+    let mut finas = 0;
     for i in ordem {
         let p = &todas[i];
         let Some(g) = gratuitos::de(&p.satelite) else { continue };
@@ -137,11 +149,21 @@ fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> S
             Some(img) => {
                 format!("imagem no Planetary Computer{}", img.nuvem.map(|n| format!(", {n:.0}% de nuvem na cena")).unwrap_or_default())
             }
+            // Sem nenhuma imagem da coleção aqui em meses: o satélite não grava este lugar.
+            None if p.stac.and_then(perfis::colecao_do_stac).is_some_and(|c| e.sem_cobertura.iter().any(|s| s == c)) => format!(
+                "não grava este lugar: o Planetary Computer não tem imagem dele aqui nos últimos {:.0} dias",
+                perfis::DIAS_COBERTURA
+            ),
             // Gravou se estava no plano da missão: a imagem, então, está no catálogo dela.
             None if g.condicao.is_some() => format!("se gravou: {}", g.onde),
             None => format!("ainda não no Planetary Computer: {}", g.onde),
         };
         t += &format!("- {} · {} · {imagem}\n", tempo::curto(p.t, e.fuso), p.satelite);
+        finas += 1;
+    }
+    // Sem nenhuma de resolução fina, a lista acima ficava vazia (uma linha em branco).
+    if finas == 0 {
+        t += "Nenhuma passagem de resolução fina (Sentinel-1 e 2, Landsat, CBERS, Amazonia-1) no período.\n";
     }
     if !diarias.is_empty() {
         let lista: Vec<String> = diarias.iter().map(|(s, n)| format!("{s} {n}×")).collect();
@@ -170,6 +192,58 @@ pub fn satelite_legivel(id: &str) -> String {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn relatorio_sem_passagens_de_resolucao_fina() {
+        let t0 = tempo::ler("2026-11-09T00:00:00Z").unwrap();
+        let e = Entrada {
+            gp: &[],
+            imagens: &[],
+            lon: -42.87,
+            lat: -20.75,
+            t0,
+            t1: t0 + 7.0 * 86_400.0,
+            fuso: -3.0 * 3600.0,
+            nome: "Viçosa",
+            nuvem_agora: None,
+            orbitas: "de teste",
+            sem_cobertura: &[],
+        };
+        let r = calcular(&e).relatorio;
+        assert!(r.starts_with("Nos últimos 7 dias, 0 passagens"), "{r}");
+        assert!(r.contains("Nenhuma passagem de resolução fina"), "{r}");
+        assert!(!r.contains("\n\n\n"), "{r}");
+        let um_dia = calcular(&Entrada { t1: t0 + 86_400.0, ..e }).relatorio;
+        assert!(um_dia.starts_with("No último dia, "), "{um_dia}");
+    }
+
+    #[test]
+    fn satelite_que_nao_grava_o_lugar() {
+        // O Sentinel-2B passou sobre Viçosa em 13/11. Sem imagem dele ali em meses (como no mar
+        // aberto), a passagem não diz "ainda não no Planetary Computer".
+        let gp = [
+            json!({"OBJECT_NAME":"SENTINEL-2B","OBJECT_ID":"2017-013A","EPOCH":"2026-11-15T19:34:54.704352","MEAN_MOTION":14.30813686,"ECCENTRICITY":0.0001114,"INCLINATION":98.5709,"RA_OF_ASC_NODE":32.4267,"ARG_OF_PERICENTER":90.3469,"MEAN_ANOMALY":269.7841,"EPHEMERIS_TYPE":0,"CLASSIFICATION_TYPE":"U","NORAD_CAT_ID":42063,"ELEMENT_SET_NO":999,"REV_AT_EPOCH":50632,"BSTAR":9.0686e-05,"MEAN_MOTION_DOT":1.94e-06,"MEAN_MOTION_DDOT":0}),
+        ];
+        let t0 = tempo::ler("2026-11-13T00:00:00Z").unwrap();
+        let sem = ["sentinel-2-l2a".to_string()];
+        let e = Entrada {
+            gp: &gp,
+            imagens: &[],
+            lon: -42.887,
+            lat: -20.695,
+            t0,
+            t1: t0 + 86_400.0,
+            fuso: -3.0 * 3600.0,
+            nome: "Viçosa",
+            nuvem_agora: None,
+            orbitas: "de teste",
+            sem_cobertura: &sem,
+        };
+        let r = calcular(&e).relatorio;
+        assert!(r.contains("SENTINEL-2B · não grava este lugar"), "{r}");
+        let com_cobertura = calcular(&Entrada { sem_cobertura: &[], ..e }).relatorio;
+        assert!(com_cobertura.contains("SENTINEL-2B · ainda não no Planetary Computer"), "{com_cobertura}");
+    }
 
     #[test]
     fn nomes_e_linhas() {

@@ -45,6 +45,16 @@ pub fn ler(resposta: &Value) -> Vec<Imagem> {
         .collect()
 }
 
+/// O item da mesma cena do Sentinel-1 na coleção `sentinel-1-rtc` do Planetary Computer, pelo
+/// endereço do item do `sentinel-1-grd`. O GeoTIFF do GRD não é georreferenciado (traz só pontos
+/// de controle) e o RustGIS não o abre; o RTC é a mesma cena corrigida do terreno, num COG em UTM,
+/// com o id do GRD mais `_rtc`.
+pub fn endereco_rtc(url: &str) -> Option<String> {
+    let (antes, id) = url.split_once("/collections/sentinel-1-grd/items/")?;
+    let id = id.trim_end_matches('/');
+    (!id.is_empty() && !id.contains('/')).then(|| format!("{antes}/collections/sentinel-1-rtc/items/{id}_rtc"))
+}
+
 /// A maior diferença entre a passagem e a hora do item: o `datetime` de um item do Sentinel-2 é
 /// o começo da tomada, que pode ter começado minutos antes; as passagens do mesmo satélite sobre
 /// o lugar ficam a mais de uma órbita (~100 min) umas das outras.
@@ -135,6 +145,19 @@ mod testes {
         assert_eq!(ps[1].categoria, Categoria::Provavel);
         // A imagem do S2A não é do S2C.
         assert_eq!(ps[2].categoria, Categoria::Provavel);
+    }
+
+    #[test]
+    fn rtc_da_cena_do_sentinel_1() {
+        let grd = "https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-1-grd/items/S1D_IW_GRDH_1SDV_20261113T081637_20261113T081702_005446_00A666";
+        assert_eq!(
+            endereco_rtc(grd).as_deref(),
+            Some(
+                "https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-1-rtc/items/S1D_IW_GRDH_1SDV_20261113T081637_20261113T081702_005446_00A666_rtc"
+            )
+        );
+        assert_eq!(endereco_rtc("https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-2-l2a/items/S2B_X"), None);
+        assert_eq!(endereco_rtc("https://x/collections/sentinel-1-grd/items/"), None);
     }
 
     #[test]

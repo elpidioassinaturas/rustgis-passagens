@@ -28,6 +28,9 @@ pub struct Entrada<'a> {
     pub nuvens: &'a [(f64, f64)],
     /// Inclui os de resolução grossa que passam todo dia (MODIS, VIIRS, Sentinel-3).
     pub diarios: bool,
+    /// As coleções ópticas sem nenhuma imagem do lugar em [`perfis::DIAS_COBERTURA`] dias: os
+    /// satélites delas não gravam ali (o mar aberto), e as passagens deles ficam de fora.
+    pub sem_cobertura: &'a [String],
 }
 
 pub struct Saida {
@@ -118,15 +121,26 @@ pub fn calcular(e: &Entrada) -> Saida {
     let satelites: Vec<Satelite> = e.gp.iter().filter_map(Satelite::de_gp).collect();
     let alvo = Lugar::new(e.lon, e.lat);
     let mut previstas: Vec<Prevista> = Vec::new();
+    // Os que passam mas não gravam o lugar (o Sentinel-2 e o Landsat no mar aberto).
+    let mut nao_gravam: Vec<&str> = Vec::new();
     for s in &satelites {
         let Some(g) = gratuitos::de(&s.nome) else { continue };
         if g.diario && !e.diarios {
             continue;
         }
         let perfil = perfis::perfil(&s.nome);
+        let colecao = perfil.as_ref().and_then(|p| p.stac).and_then(perfis::colecao_do_stac);
+        let nao_grava = colecao.is_some_and(|c| e.sem_cobertura.iter().any(|s| s == c));
         for p in orbita::passagens(s, perfil.as_ref(), &alvo, e.t0, e.t1) {
             // Só as que veem o lugar: a faixa da câmera, de dia, ou a do radar.
             if p.categoria != Categoria::Provavel {
+                continue;
+            }
+            // Passa, mas não grava: fica de fora, e o relatório diz por quê.
+            if nao_grava {
+                if !nao_gravam.contains(&g.prefixo) {
+                    nao_gravam.push(g.prefixo);
+                }
                 continue;
             }
             let nuvem = if g.radar { None } else { nuvem_em(e.nuvens, p.t) };
@@ -173,14 +187,16 @@ pub fn calcular(e: &Entrada) -> Saida {
         })
         .collect();
     let passagens = feicoes.len();
-    Saida { camada: json!({"type": "FeatureCollection", "features": feicoes}), relatorio: relatorio(e, &previstas), passagens }
+    nao_gravam.sort_unstable();
+    Saida { camada: json!({"type": "FeatureCollection", "features": feicoes}), relatorio: relatorio(e, &previstas, &nao_gravam), passagens }
 }
 
-fn relatorio(e: &Entrada, previstas: &[Prevista]) -> String {
+fn relatorio(e: &Entrada, previstas: &[Prevista], nao_gravam: &[&str]) -> String {
     let dias = ((e.t1 - e.t0) / 86_400.0).round();
     let mut t = format!(
-        "Próximas passagens de satélites de imagem gratuita sobre {}, nos próximos {dias:.0} dias (hora local, nuvem prevista pelo Open-Meteo):\n\n",
-        e.nome
+        "Próximas passagens de satélites de imagem gratuita sobre {}, {} (hora local, nuvem prevista pelo Open-Meteo):\n\n",
+        e.nome,
+        tempo::periodo(dias, true)
     );
     if previstas.is_empty() {
         t += "Nenhuma passagem com o lugar dentro da faixa de um deles.\n";
@@ -194,9 +210,27 @@ fn relatorio(e: &Entrada, previstas: &[Prevista]) -> String {
         let condicao = p.gratuito.condicao.map(|c| format!(" · {c}")).unwrap_or_default();
         t += &format!("- {} · {} ({}) · {nuvem}{condicao}\n", tempo::curto(p.t, e.fuso), p.satelite, p.gratuito.resolucao);
     }
+    if !nao_gravam.is_empty() {
+        let dias = perfis::DIAS_COBERTURA;
+        t += &if nao_gravam.len() == 1 {
+            format!(
+                "\n{} passa por aqui, mas não grava este lugar: o Planetary Computer não tem imagem dele aqui nos últimos {dias:.0} dias (o mar aberto, longe da costa). As passagens dele ficaram de fora.\n",
+                nao_gravam[0]
+            )
+        } else {
+            let (ultimo, outros) = nao_gravam.split_last().unwrap_or((&"", &[]));
+            format!(
+                "\n{} e {ultimo} passam por aqui, mas não gravam este lugar: o Planetary Computer não tem imagem deles aqui nos últimos {dias:.0} dias (o mar aberto, longe da costa). As passagens deles ficaram de fora.\n",
+                outros.join(", ")
+            )
+        };
+    }
     // A melhor aposta: a primeira passagem óptica que vira imagem com certeza e de céu limpo.
     let garantida = |p: &&Prevista| !p.gratuito.radar && p.gratuito.condicao.is_none() && !p.gratuito.diario;
     match previstas.iter().filter(garantida).find(|p| p.ceu == Ceu::Limpo) {
+        // Sem nenhuma passagem do Sentinel-2 ou do Landsat, porque eles não gravam aqui: a frase
+        // acima já diz isso.
+        None if !nao_gravam.is_empty() && !previstas.iter().any(|p| garantida(&p)) => {}
         Some(p) => {
             t += &format!(
                 "\nA próxima imagem limpa provável: {} em {}, com {:.0}% de nuvem prevista.\n",
@@ -226,7 +260,8 @@ fn relatorio(e: &Entrada, previstas: &[Prevista]) -> String {
         }
     }
     if !e.diarios {
-        t += "Os de resolução grossa que passam todo dia (MODIS, VIIRS, Sentinel-3) ficaram de fora: marque Incluir os diários para vê-los.\n";
+        // O painel não tem a opção: só o formulário do comando Próximas imagens, na faixa.
+        t += "Os de resolução grossa que passam todo dia (MODIS, VIIRS, Sentinel-3) ficaram de fora: para vê-los, rode Próximas imagens na aba Satélites com Incluir os diários de resolução grossa marcado.\n";
     }
     // Onde baixar, com os satélites de cada fonte.
     let mut onde: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -288,6 +323,7 @@ mod testes {
             nome: "Viçosa",
             nuvens: &nuvens,
             diarios: false,
+            sem_cobertura: &[],
         };
         let s = calcular(&e);
         let fs = s.camada["features"].as_array().unwrap();
@@ -300,5 +336,22 @@ mod testes {
         assert_eq!(perto["properties"]["ceu"], "céu limpo");
         assert!(perto["properties"]["quando"].as_str().unwrap().starts_with("seg 23/11 10:0"), "{}", perto["properties"]["quando"]);
         assert!(s.relatorio.contains("A próxima imagem limpa provável: SENTINEL-2B"), "{}", s.relatorio);
+        // A opção dos diários só existe no formulário do comando, não no painel.
+        assert!(s.relatorio.contains("rode Próximas imagens na aba Satélites com Incluir os diários"), "{}", s.relatorio);
+
+        // Onde o Sentinel-2 não grava (o mar aberto), as passagens dele ficam de fora, e o
+        // relatório não promete uma imagem limpa dele.
+        let sem = ["sentinel-2-l2a".to_string()];
+        let mar = calcular(&Entrada { sem_cobertura: &sem, ..e });
+        assert_eq!(mar.passagens, 0);
+        assert!(mar.relatorio.contains("SENTINEL-2 passa por aqui, mas não grava este lugar"), "{}", mar.relatorio);
+        assert!(!mar.relatorio.contains("A próxima imagem limpa provável"), "{}", mar.relatorio);
+        assert!(!mar.relatorio.contains("Nenhuma passagem do Sentinel-2 ou do Landsat"), "{}", mar.relatorio);
+        // Com uma órbita de teste do Landsat 9 que também passa sobre Viçosa no período: os dois
+        // nomes, com "e".
+        let dois = ["sentinel-2-l2a".to_string(), "landsat-c2-l2".to_string()];
+        let gp2 = json!([gp[0].clone(), {"OBJECT_NAME":"LANDSAT 9","OBJECT_ID":"2021-088A","EPOCH":"2026-11-15T19:34:54.704352","MEAN_MOTION":14.57110,"ECCENTRICITY":0.0001,"INCLINATION":98.2,"RA_OF_ASC_NODE":30.0,"ARG_OF_PERICENTER":90.0,"MEAN_ANOMALY":0.0,"EPHEMERIS_TYPE":0,"CLASSIFICATION_TYPE":"U","NORAD_CAT_ID":49260,"ELEMENT_SET_NO":999,"REV_AT_EPOCH":1,"BSTAR":1e-05,"MEAN_MOTION_DOT":0,"MEAN_MOTION_DDOT":0}]);
+        let mar2 = calcular(&Entrada { gp: gp2.as_array().unwrap(), sem_cobertura: &dois, ..e });
+        assert!(mar2.relatorio.contains("LANDSAT 9 e SENTINEL-2 passam por aqui, mas não gravam"), "{}", mar2.relatorio);
     }
 }

@@ -142,6 +142,27 @@ fn stac_sentinel(missao: &'static str, resto: &str) -> Option<&'static str> {
 /// As coleções do Planetary Computer que este plugin procura.
 pub const COLECOES: [&str; 3] = ["sentinel-2-l2a", "landsat-c2-l2", "sentinel-1-grd"];
 
+/// As coleções ópticas que gravam toda a terra que veem de dia, e só ela (e a costa): sem
+/// nenhuma imagem de um lugar em [`DIAS_COBERTURA`] dias, o satélite não grava ali (o mar aberto).
+pub const OPTICAS: [&str; 2] = ["sentinel-2-l2a", "landsat-c2-l2"];
+
+/// Os dias em que uma coleção óptica sem imagem do lugar quer dizer que ela não grava ali.
+pub const DIAS_COBERTURA: f64 = 120.0;
+
+/// A coleção do Planetary Computer de um satélite, pelo começo do id dos itens dele (`S2B` →
+/// `sentinel-2-l2a`, `LC09` → `landsat-c2-l2`).
+pub fn colecao_do_stac(stac: &str) -> Option<&'static str> {
+    if stac.starts_with("S2") {
+        Some("sentinel-2-l2a")
+    } else if stac.starts_with("LC") {
+        Some("landsat-c2-l2")
+    } else if stac.starts_with("S1") {
+        Some("sentinel-1-grd")
+    } else {
+        None
+    }
+}
+
 /// O começo do id de um item do STAC que diz o satélite (`S2B_MSIL2A_…` → `S2B`,
 /// `LC09_L2SP_…` → `LC09`).
 pub fn satelite_do_item(id: &str) -> &str {
@@ -167,5 +188,9 @@ mod testes {
         assert_eq!(perfil("TERRASAR-X").unwrap().sensor, Sensor::Apontavel { angulo: 45.0, radar: true });
         assert_eq!(satelite_do_item("S2B_MSIL2A_20261113T130249_R095_T23KQT_20261113T152136"), "S2B");
         assert_eq!(satelite_do_item("LC09_L2SP_217074_20261110_02_T1"), "LC09");
+        assert_eq!(colecao_do_stac("S2B"), Some("sentinel-2-l2a"));
+        assert_eq!(colecao_do_stac("LC08"), Some("landsat-c2-l2"));
+        assert_eq!(colecao_do_stac("S1D"), Some("sentinel-1-grd"));
+        assert_eq!(colecao_do_stac("CB4"), None);
     }
 }

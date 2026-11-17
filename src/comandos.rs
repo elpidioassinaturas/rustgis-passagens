@@ -14,7 +14,7 @@ use crate::imagens::{self, Imagem};
 use crate::municipios;
 use crate::nomes;
 use crate::orbita::Categoria;
-use crate::perfis::COLECOES;
+use crate::perfis::{COLECOES, DIAS_COBERTURA, OPTICAS};
 use crate::proximas::{self, Ceu};
 use crate::tempo;
 
@@ -285,6 +285,27 @@ fn passagens(req: &Request) -> Result<Value, String> {
         }
     }
 
+    // Uma coleção óptica sem imagem do lugar no período: com nenhuma em meses, o satélite não
+    // grava ali (o mar aberto), e o relatório não diz "ainda não no Planetary Computer". Uma busca
+    // de um item só, e só para a coleção que veio vazia.
+    let mut sem_cobertura: Vec<String> = Vec::new();
+    for c in OPTICAS {
+        if imgs.iter().any(|i| i.colecao == c) {
+            continue;
+        }
+        let antes = format!("{}/{}", tempo::dia(t1 - DIAS_COBERTURA * 86_400.0), tempo::dia(t1));
+        match host::run(
+            "stac.search",
+            json!({"url": STAC, "collections": [c], "bbox": caixa, "datetime": antes, "limit": 1, "footprints": false}),
+        ) {
+            Ok(r) if esperando(&r) => return Ok(json!({"pending": true})),
+            Ok(r) if imagens::ler(&r).is_empty() => sem_cobertura.push(c.to_string()),
+            Ok(_) => {}
+            Err(e) => avisos.push(format!("STAC {c}: {e}")),
+        }
+    }
+    let s2_nao_grava = sem_cobertura.iter().any(|c| c == "sentinel-2-l2a");
+
     // A imagem óptica mais recente com pouca nuvem: toda imagem do lugar no período veio de uma
     // passagem sobre ele. A nuvem aqui é a da cena inteira (o que o STAC diz); Imagens limpas
     // confere o pixel do lugar, e uma cena nublada pode ter o lugar limpo.
@@ -317,6 +338,11 @@ fn passagens(req: &Request) -> Result<Value, String> {
                 }
                 Err(e) => avisos.push(format!("imagem {}: {e}", i.id)),
             },
+            None if s2_nao_grava => {
+                linha_imagem = format!(
+                    "\nO Sentinel-2 não grava este lugar: o Planetary Computer não tem imagem dele aqui nos últimos {DIAS_COBERTURA:.0} dias (o mar aberto, longe da costa)."
+                )
+            }
             None => {
                 linha_imagem = format!(
                     "\nNenhuma imagem óptica do período tem 30% de nuvem ou menos na cena inteira, nem dos 120 dias antes ({PIXEL})."
@@ -339,7 +365,7 @@ fn passagens(req: &Request) -> Result<Value, String> {
             "imagens": Value::Array(imgs_json).to_string(),
             "lat": lat, "lon": lon, "inicio": t0, "fim": t1, "fuso": fuso,
             "lugar": nome, "camada": camada, "camadaLugar": camada_lugar, "nuvemAgora": nuvem_agora,
-            "orbitas": orbitas.fonte,
+            "orbitas": orbitas.fonte, "semCobertura": sem_cobertura.join(","),
         }}),
     )?;
     // O relatório vem no ponto do lugar, que a ferramenta faz (o gp.run não devolve as mensagens
@@ -524,6 +550,8 @@ fn calcular(req: &Request) -> Result<Value, String> {
         })
         .collect();
     let lugar = texto("lugar")?;
+    let sem_cobertura: Vec<String> =
+        req.str("semCobertura").unwrap_or_default().split(',').map(str::trim).filter(|c| !c.is_empty()).map(str::to_string).collect();
     let saida = calculo::calcular(&Entrada {
         gp: gp.as_array().map(Vec::as_slice).unwrap_or_default(),
         imagens: &imgs,
@@ -535,6 +563,7 @@ fn calcular(req: &Request) -> Result<Value, String> {
         nome: lugar,
         nuvem_agora: req.f64("nuvemAgora"),
         orbitas: req.str("orbitas").unwrap_or("do CelesTrak"),
+        sem_cobertura: &sem_cobertura,
     });
     let (lat, lon) = (numero("lat")?, numero("lon")?);
     let mut out = ToolOutput::new().layer(

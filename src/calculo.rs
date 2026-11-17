@@ -30,6 +30,10 @@ pub struct Entrada<'a> {
     pub nuvem_agora: Option<f64>,
     /// De onde vieram as órbitas, para o relatório ("do CelesTrak, baixadas agora").
     pub orbitas: &'a str,
+    /// As coleções ópticas ([`perfis::OPTICAS`]) sem nenhuma imagem do lugar em
+    /// [`perfis::DIAS_COBERTURA`] dias: os satélites delas não gravam ali (o mar aberto), e as
+    /// passagens deles não vão virar imagem.
+    pub sem_cobertura: &'a [String],
 }
 
 /// O resultado: a camada (GeoJSON) e o relatório.
@@ -145,6 +149,11 @@ fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> S
             Some(img) => {
                 format!("imagem no Planetary Computer{}", img.nuvem.map(|n| format!(", {n:.0}% de nuvem na cena")).unwrap_or_default())
             }
+            // Sem nenhuma imagem da coleção aqui em meses: o satélite não grava este lugar.
+            None if p.stac.and_then(perfis::colecao_do_stac).is_some_and(|c| e.sem_cobertura.iter().any(|s| s == c)) => format!(
+                "não grava este lugar: o Planetary Computer não tem imagem dele aqui nos últimos {:.0} dias",
+                perfis::DIAS_COBERTURA
+            ),
             // Gravou se estava no plano da missão: a imagem, então, está no catálogo dela.
             None if g.condicao.is_some() => format!("se gravou: {}", g.onde),
             None => format!("ainda não no Planetary Computer: {}", g.onde),
@@ -198,6 +207,7 @@ mod testes {
             nome: "Viçosa",
             nuvem_agora: None,
             orbitas: "de teste",
+            sem_cobertura: &[],
         };
         let r = calcular(&e).relatorio;
         assert!(r.starts_with("Nos últimos 7 dias, 0 passagens"), "{r}");
@@ -205,6 +215,34 @@ mod testes {
         assert!(!r.contains("\n\n\n"), "{r}");
         let um_dia = calcular(&Entrada { t1: t0 + 86_400.0, ..e }).relatorio;
         assert!(um_dia.starts_with("No último dia, "), "{um_dia}");
+    }
+
+    #[test]
+    fn satelite_que_nao_grava_o_lugar() {
+        // O Sentinel-2B passou sobre Viçosa em 13/11. Sem imagem dele ali em meses (como no mar
+        // aberto), a passagem não diz "ainda não no Planetary Computer".
+        let gp = [
+            json!({"OBJECT_NAME":"SENTINEL-2B","OBJECT_ID":"2017-013A","EPOCH":"2026-11-15T19:34:54.704352","MEAN_MOTION":14.30813686,"ECCENTRICITY":0.0001114,"INCLINATION":98.5709,"RA_OF_ASC_NODE":32.4267,"ARG_OF_PERICENTER":90.3469,"MEAN_ANOMALY":269.7841,"EPHEMERIS_TYPE":0,"CLASSIFICATION_TYPE":"U","NORAD_CAT_ID":42063,"ELEMENT_SET_NO":999,"REV_AT_EPOCH":50632,"BSTAR":9.0686e-05,"MEAN_MOTION_DOT":1.94e-06,"MEAN_MOTION_DDOT":0}),
+        ];
+        let t0 = tempo::ler("2026-11-13T00:00:00Z").unwrap();
+        let sem = ["sentinel-2-l2a".to_string()];
+        let e = Entrada {
+            gp: &gp,
+            imagens: &[],
+            lon: -42.887,
+            lat: -20.695,
+            t0,
+            t1: t0 + 86_400.0,
+            fuso: -3.0 * 3600.0,
+            nome: "Viçosa",
+            nuvem_agora: None,
+            orbitas: "de teste",
+            sem_cobertura: &sem,
+        };
+        let r = calcular(&e).relatorio;
+        assert!(r.contains("SENTINEL-2B · não grava este lugar"), "{r}");
+        let com_cobertura = calcular(&Entrada { sem_cobertura: &[], ..e }).relatorio;
+        assert!(com_cobertura.contains("SENTINEL-2B · ainda não no Planetary Computer"), "{com_cobertura}");
     }
 
     #[test]

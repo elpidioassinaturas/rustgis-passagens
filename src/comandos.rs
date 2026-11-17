@@ -34,10 +34,16 @@ const CELESTRAK: [&str; 7] =
 /// GitHub deixa o app web ler o arquivo (o CelesTrak não manda CORS).
 const ORBITAS: &str = "https://raw.githubusercontent.com/elpidioassinaturas/rustgis-passagens/orbitas/orbitas.json";
 
-/// Quantas datas o comando `imagens` confere no pixel do lugar. Cada consulta leva 1 a 2 s, um
-/// plugin tem 60 s de consultas por chamada, e no app desktop um comando para em 120 s (cada
-/// cubo da barra de tempo leva uns 8 s).
-const CONFERIR: usize = 16;
+/// Quantas datas o comando `imagens` confere no pixel do lugar. Uma chamada de plugin faz no
+/// máximo 64 consultas web (`host.fetch`), com 60 s para todas, e o comando já faz até 2 (o
+/// Open-Meteo e o Photon). Uma consulta do pixel nova leva uns 1,4 s (medido no app desktop):
+/// numa rodada cabem umas 40, e as que passam dos 60 s falham ([`FALHAS`]). As respostas ficam
+/// guardadas 10 minutos e voltam sem custo, e por isso a rodada seguinte confere até 48.
+const CONFERIR: usize = 48;
+
+/// Depois de tantas consultas do pixel falhando em seguida (em geral, o tempo das consultas da
+/// chamada acabou), o comando para de consultar e o relatório diz para rodar de novo.
+const FALHAS: usize = 3;
 
 fn handle(req: Request) -> Result<Value, String> {
     match (req.kind, req.id.as_str()) {
@@ -724,9 +730,12 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
     let mut datas: Vec<galeria::Data> = Vec::new();
     let mut pendentes = 0;
     let mut consultas = 0;
+    let mut falhas = 0;
     for img in imgs {
         let (ceu, classe) = match galeria::pela_cena(img.nuvem) {
             Some(c) => c,
+            // O tempo antes do número: quando os dois acabam juntos, foi o tempo que faltou.
+            None if falhas >= FALHAS => (galeria::Ceu::NaoConferido, "o tempo das consultas acabou"),
             None if consultas >= CONFERIR => (galeria::Ceu::NaoConferido, "o limite de consultas acabou"),
             // No app web, no máximo 8 consultas esperam por rodada.
             None if pendentes >= 8 => {
@@ -744,8 +753,14 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
                         pendentes += 1;
                         (galeria::Ceu::NaoConferido, "chegando")
                     }
-                    Ok(Some(p)) => p["json"]["values"][0].as_f64().map(galeria::classe_scl).unwrap_or((galeria::Ceu::SemDado, "sem dado")),
-                    Err(_) => (galeria::Ceu::NaoConferido, "a consulta falhou"),
+                    Ok(Some(p)) => {
+                        falhas = 0;
+                        p["json"]["values"][0].as_f64().map(galeria::classe_scl).unwrap_or((galeria::Ceu::SemDado, "sem dado"))
+                    }
+                    Err(_) => {
+                        falhas += 1;
+                        (galeria::Ceu::NaoConferido, "a consulta falhou")
+                    }
                 }
             }
         };
@@ -780,6 +795,9 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
     };
     let do_dia = |n: &str, dia: &str| nomes::data_do_cubo(n, &camada) == Some(dia);
     let mut relatorio = galeria::relatorio(&nome, dias, desde, &datas, fuso, calculo::satelite_legivel);
+    if falhas >= FALHAS {
+        relatorio += "\nO tempo das consultas desta rodada acabou antes de conferir todas as datas: rode de novo para conferir as que faltaram (as já conferidas ficam guardadas por 10 minutos e voltam na hora).\n";
+    }
     if limpas.is_empty() {
         relatorio += "\nNenhuma das datas conferidas tem o céu limpo no lugar: rode de novo com mais dias.";
         return Ok(json!({"report": relatorio}));

@@ -85,7 +85,7 @@ pub struct Data {
 /// Quantas cenas a busca do comando `imagens` lê, as mais recentes. Cada cena do Planetary
 /// Computer vem com todos os arquivos (uns 8 KB), e um comando de plugin tem um orçamento de
 /// instruções: com 200 cenas (365 dias num lugar entre dois tiles MGRS), o RustGIS parava o
-/// comando ("it ran too long"). De qualquer jeito, só as 16 datas mais novas têm o pixel conferido.
+/// comando ("it ran too long"). De qualquer jeito, só as 48 datas mais novas têm o pixel conferido.
 pub const ITENS: usize = 100;
 
 /// O relatório: a linha do tempo, da mais nova à mais velha.

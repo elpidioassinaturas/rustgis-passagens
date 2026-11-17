@@ -56,8 +56,8 @@ rustgis-cli run --sample --yes --cmd 'plugin:passagens/passagens={"lat":-20.695,
 
 Parâmetros: o lugar é o centro do mapa, ou `lat` e `lon`; `nome` dá o nome das camadas (padrão:
 o do Photon). Passagens: `dias` de 1 a 14 (padrão 7) e `imagem` (padrão `true`). Imagens do
-lugar: `dias` de 5 a 365 (padrão 60; o céu é conferido nas 16 datas mais novas, pelo limite de
-tempo de um comando), `lado` do recorte em km (padrão 5) e `quantas` datas limpas na barra (padrão
+lugar: `dias` de 5 a 365 (padrão 60; lê as 100 cenas mais recentes, e o céu é conferido nas 48
+datas mais novas, pelo limite de consultas de um comando), `lado` do recorte em km (padrão 5) e `quantas` datas limpas na barra (padrão
 6, até 10; cada uma leva uns 8 s). Próximas
 imagens: `dias` de 1 a 16 (padrão 10) e `diarios` (padrão `false`), que inclui os de resolução
 grossa.

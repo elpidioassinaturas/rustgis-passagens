@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "passagens"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "chrono",
  "rustgis-plugin",

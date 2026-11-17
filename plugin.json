@@ -18,7 +18,7 @@
     {
       "id": "passagens",
       "label": "Passagens\nde satélites",
-      "help": "As passagens dos satélites de imagem gratuita que viram um lugar nos últimos dias (o clicado no painel, o centro do mapa, ou a latitude e a longitude dadas), cada uma como o traço no chão: fotografou (a imagem está no Planetary Computer) ou provavelmente fotografou (a faixa da câmera cobriu o lugar; a imagem pode estar no INPE, na NASA ou no Copernicus). Traz para o mapa a imagem mais recente com pouca nuvem.",
+      "help": "As passagens dos satélites de imagem gratuita que viram um lugar nos últimos dias (o município dado, ou o lugar escolhido no painel, ou o centro do mapa), cada uma como o traço no chão: fotografou (a imagem está no Planetary Computer) ou provavelmente fotografou (a faixa da câmera cobriu o lugar; a imagem pode estar no INPE, na NASA ou no Copernicus). Traz para o mapa a imagem mais recente com pouca nuvem.",
       "icon": "locate",
       "timeout": 120,
       "params": "{\"municipio\"?: nome (\"Ubaporanga\", \"Viçosa/MG\") ou código do IBGE, ou \"lat\" e \"lon\" em graus (nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 1 a 14 (padrão 7), \"nome\"?: o nome do lugar (padrão: o do Photon), \"imagem\"?: bool (traz a imagem mais recente com pouca nuvem; padrão true)}",
@@ -53,7 +53,7 @@
     {
       "id": "imagens",
       "label": "Imagens\ndo lugar",
-      "help": "As imagens do Sentinel-2 de um lugar (o centro do mapa, ou a latitude e a longitude dadas) na barra de tempo, um recorte em volta dele em 10 m, só as datas com o céu limpo no próprio lugar (pela classificação da cena no pixel do lugar, não pela nuvem da cena inteira). Desktop e rustgis-cli.",
+      "help": "As imagens do Sentinel-2 de um lugar (o município dado, ou o lugar escolhido no painel, ou o centro do mapa) na barra de tempo, um recorte em volta dele em 10 m, só as datas com o céu limpo no próprio lugar (pela classificação da cena no pixel do lugar, não pela nuvem da cena inteira). Desktop e rustgis-cli.",
       "icon": "history",
       "timeout": 120,
       "params": "{\"municipio\"?: nome (\"Ubaporanga\", \"Viçosa/MG\") ou código do IBGE, ou \"lat\" e \"lon\" em graus (nenhum: o lugar do painel, ou o centro do mapa), \"dias\"?: 5 a 365 (padrão 60), \"lado\"?: km, 1 a 20 (padrão 5), \"quantas\"?: 1 a 10 (as datas limpas mais recentes na barra; padrão 6), \"nome\"?: o nome do lugar}",

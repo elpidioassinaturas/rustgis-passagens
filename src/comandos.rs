@@ -916,21 +916,39 @@ fn remover(nomes: &[&str]) -> Result<(), String> {
 /// para logo abaixo delas: um cubo é desenhado sobre a camada que estava no topo quando ele entrou,
 /// e pode ser uma dessas. Os cubos ficam na ordem em que estavam (com a mesma posição pedida, o
 /// que vai depois fica por baixo). Sem efeito para o resultado do comando: a ordem é só a vista.
+///
+/// O `to` do `map.setTiles` conta a posição entre as outras camadas, os outros cubos também: com
+/// os cubos do lugar no topo (clicado, o RustGIS põe no topo os cubos que o download trouxe), o
+/// primeiro parava acima das linhas, por causa dos outros ainda por cima. Por isso todos descem
+/// primeiro para o fundo, e só então sobem, um a um, para logo abaixo das camadas do lugar.
 fn imagens_por_baixo(nome: &str) {
     let Ok(camadas) = host::layers() else { return };
     let no_mapa: Vec<&str> = camadas.as_array().into_iter().flatten().filter_map(|l| l["name"].as_str()).collect();
+    // Toda camada do lugar no mapa conta, movida ou não: o `layer.move` falha com a camada que já
+    // está no topo (as linhas que o comando acabou de pôr), e ela continua lá em cima.
     let mut no_topo = 0;
     for camada in nomes::camadas_do_lugar(nome) {
-        if no_mapa.contains(&camada.as_str()) && host::run("layer.move", json!({"layer": camada, "to": 0})).is_ok() {
+        if no_mapa.contains(&camada.as_str()) {
+            let _ = host::run("layer.move", json!({"layer": camada, "to": 0}));
             no_topo += 1;
         }
     }
     let Ok(projeto) = host::run("info.project", json!({})) else { return };
     let cubo = format!("{PREFIXO_IMAGENS}{nome}");
-    for t in projeto["tileLayers"].as_array().into_iter().flatten() {
-        if let Some(n) = t["name"].as_str().filter(|n| nomes::data_do_cubo(n, &cubo).is_some()) {
-            let _ = host::run("map.setTiles", json!({"name": n, "to": no_topo}));
-        }
+    // Na ordem do mapa, de cima para baixo.
+    let cubos: Vec<String> = projeto["tileLayers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["name"].as_str())
+        .filter(|n| nomes::data_do_cubo(n, &cubo).is_some())
+        .map(str::to_string)
+        .collect();
+    for n in &cubos {
+        let _ = host::run("map.setTiles", json!({"name": n, "move": "bottom"}));
+    }
+    for n in &cubos {
+        let _ = host::run("map.setTiles", json!({"name": n, "to": no_topo}));
     }
 }
 

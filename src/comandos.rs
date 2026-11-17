@@ -285,25 +285,10 @@ fn passagens(req: &Request) -> Result<Value, String> {
         }
     }
 
-    // Uma coleção óptica sem imagem do lugar no período: com nenhuma em meses, o satélite não
-    // grava ali (o mar aberto), e o relatório não diz "ainda não no Planetary Computer". Uma busca
-    // de um item só, e só para a coleção que veio vazia.
-    let mut sem_cobertura: Vec<String> = Vec::new();
-    for c in OPTICAS {
-        if imgs.iter().any(|i| i.colecao == c) {
-            continue;
-        }
-        let antes = format!("{}/{}", tempo::dia(t1 - DIAS_COBERTURA * 86_400.0), tempo::dia(t1));
-        match host::run(
-            "stac.search",
-            json!({"url": STAC, "collections": [c], "bbox": caixa, "datetime": antes, "limit": 1, "footprints": false}),
-        ) {
-            Ok(r) if esperando(&r) => return Ok(json!({"pending": true})),
-            Ok(r) if imagens::ler(&r).is_empty() => sem_cobertura.push(c.to_string()),
-            Ok(_) => {}
-            Err(e) => avisos.push(format!("STAC {c}: {e}")),
-        }
-    }
+    // O relatório não diz "ainda não no Planetary Computer" de um satélite que não grava o lugar.
+    let Some(sem_cobertura) = sem_cobertura(caixa, t1, |c| imgs.iter().any(|i| i.colecao == c), &mut avisos) else {
+        return Ok(json!({"pending": true}));
+    };
     let s2_nao_grava = sem_cobertura.iter().any(|c| c == "sentinel-2-l2a");
 
     // A imagem óptica mais recente com pouca nuvem: toda imagem do lugar no período veio de uma
@@ -517,6 +502,30 @@ impl Orbitas {
     }
 }
 
+/// As coleções ópticas ([`OPTICAS`]) sem nenhuma imagem do lugar (`caixa`) nos
+/// [`DIAS_COBERTURA`] dias até `t1`: os satélites delas não gravam ali (o mar aberto, longe da
+/// costa). Uma busca de um item só por coleção, e nenhuma para as que `tem_imagem` já diz que têm.
+/// `None`: uma resposta está chegando (no app web).
+fn sem_cobertura(caixa: [f64; 4], t1: f64, tem_imagem: impl Fn(&str) -> bool, avisos: &mut Vec<String>) -> Option<Vec<String>> {
+    let antes = format!("{}/{}", tempo::dia(t1 - DIAS_COBERTURA * 86_400.0), tempo::dia(t1));
+    let mut sem = Vec::new();
+    for c in OPTICAS {
+        if tem_imagem(c) {
+            continue;
+        }
+        match host::run(
+            "stac.search",
+            json!({"url": STAC, "collections": [c], "bbox": caixa, "datetime": antes, "limit": 1, "footprints": false}),
+        ) {
+            Ok(r) if esperando(&r) => return None,
+            Ok(r) if imagens::ler(&r).is_empty() => sem.push(c.to_string()),
+            Ok(_) => {}
+            Err(e) => avisos.push(format!("STAC {c}: {e}")),
+        }
+    }
+    Some(sem)
+}
+
 /// A imagem do Sentinel-2 mais recente com até 10% de nuvem nos 120 dias até `t1`.
 fn ultima_vista_limpa(caixa: [f64; 4], t1: f64) -> Option<Imagem> {
     let periodo = format!("{}/{}", tempo::dia(t1 - 120.0 * 86_400.0), tempo::dia(t1));
@@ -623,6 +632,12 @@ fn proximas(req: &Request) -> Result<Value, String> {
         return Err("as órbitas não têm nenhum dos satélites de imagem gratuita".into());
     }
 
+    // Os satélites que não gravam o lugar (o mar aberto) não entram como próximas imagens.
+    let caixa = [lon - 0.0005, lat - 0.0005, lon + 0.0005, lat + 0.0005];
+    let Some(sem_cobertura) = sem_cobertura(caixa, agora, |_| false, &mut avisos) else {
+        return Ok(json!({"pending": true}));
+    };
+
     let camada = format!("{PREFIXO_PROXIMAS}{nome}");
     let camada_lugar = format!("{PREFIXO_PROXIMAS}{nome} (lugar)");
     remover(&[&camada, &camada_lugar])?;
@@ -634,6 +649,7 @@ fn proximas(req: &Request) -> Result<Value, String> {
             "nuvens": json!(nuvens).to_string(),
             "lat": lat, "lon": lon, "inicio": agora, "fim": agora + dias * 86_400.0, "fuso": fuso,
             "lugar": nome, "camada": camada, "camadaLugar": camada_lugar, "diarios": diarios,
+            "semCobertura": sem_cobertura.join(","),
         }}),
     )?;
     let mut relatorio = host::features(&camada_lugar, false)
@@ -668,6 +684,8 @@ fn calcular_proximas(req: &Request) -> Result<Value, String> {
         .collect();
     let (lat, lon) = (numero("lat")?, numero("lon")?);
     let lugar = texto("lugar")?;
+    let sem_cobertura: Vec<String> =
+        req.str("semCobertura").unwrap_or_default().split(',').map(str::trim).filter(|c| !c.is_empty()).map(str::to_string).collect();
     let saida = proximas::calcular(&proximas::Entrada {
         gp: gp.as_array().map(Vec::as_slice).unwrap_or_default(),
         lon,
@@ -678,6 +696,7 @@ fn calcular_proximas(req: &Request) -> Result<Value, String> {
         nome: lugar,
         nuvens: &nuvens,
         diarios: req.bool("diarios").unwrap_or(false),
+        sem_cobertura: &sem_cobertura,
     });
     let mut out = ToolOutput::new().layer(
         texto("camadaLugar")?,

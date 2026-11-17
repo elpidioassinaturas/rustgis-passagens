@@ -389,5 +389,22 @@
       }
     ],
     "state": "estado"
+  },
+  "tab": {
+    "label": "Satélites",
+    "groups": [
+      {
+        "label": "Lugar",
+        "items": ["panel"]
+      },
+      {
+        "label": "Com mais opções",
+        "items": ["passagens", "imagens", "proximas"]
+      },
+      {
+        "label": "Passagem",
+        "items": ["imagem"]
+      }
+    ]
   }
 }

@@ -7,8 +7,7 @@ Inspirado no [watched.earth](https://www.watched.earth).
 
 ## Uso: o painel
 
-Na aba **Plugins**, o primeiro botão do grupo **Passagens de satélites**, **Satélites sobre um
-lugar**, abre o painel:
+Na aba **Satélites**, o botão **Satélites sobre um lugar** (grupo **Lugar**) abre o painel:
 
 1. O lugar: o **Município**, digitando parte do nome na busca da lista (as UFs, cada uma com os
    seus municípios) e escolhendo-o; ou **Ou clicar no mapa** e um clique no mapa. O painel mostra
@@ -20,8 +19,11 @@ lugar**, abre o painel:
    - **Recentes:** as passagens dos últimos 7 dias e as imagens que elas fizeram.
 3. O resultado aparece no painel, e as camadas no mapa.
 
-Os botões **Passagens de satélites**, **Imagens do lugar** e **Próximas imagens** do grupo são os
-mesmos comandos com um formulário (município, dias, tamanho do recorte). O **Município** é o nome
+Os botões do painel e os comandos que só o painel usa (escolher o lugar, o estado do painel) e as
+ferramentas de cálculo não ficam na aba; a busca de comandos acha todos eles.
+
+Os botões **Passagens de satélites**, **Imagens do lugar** e **Próximas imagens** do grupo **Com
+mais opções** são os mesmos comandos com um formulário (município, dias, tamanho do recorte). O **Município** é o nome
 (`Ubaporanga`, ou `Viçosa/MG` quando o nome se repete) ou o código do IBGE; vazio, vale o último
 lugar escolhido no painel, ou o centro do mapa. O município de um formulário vale só para ele: o
 lugar dos botões do painel muda só no painel. Os municípios (com a sede de cada um) vão dentro do

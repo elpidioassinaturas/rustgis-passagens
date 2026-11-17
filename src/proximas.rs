@@ -179,8 +179,9 @@ pub fn calcular(e: &Entrada) -> Saida {
 fn relatorio(e: &Entrada, previstas: &[Prevista]) -> String {
     let dias = ((e.t1 - e.t0) / 86_400.0).round();
     let mut t = format!(
-        "Próximas passagens de satélites de imagem gratuita sobre {}, nos próximos {dias:.0} dias (hora local, nuvem prevista pelo Open-Meteo):\n\n",
-        e.nome
+        "Próximas passagens de satélites de imagem gratuita sobre {}, {} (hora local, nuvem prevista pelo Open-Meteo):\n\n",
+        e.nome,
+        tempo::periodo(dias, true)
     );
     if previstas.is_empty() {
         t += "Nenhuma passagem com o lugar dentro da faixa de um deles.\n";

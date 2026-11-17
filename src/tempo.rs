@@ -104,9 +104,28 @@ pub fn idade(segundos: f64) -> String {
     }
 }
 
+/// O período em palavras, no singular com um dia: "nos últimos 7 dias", "no último dia",
+/// "nos próximos 10 dias", "no próximo dia".
+pub fn periodo(dias: f64, futuro: bool) -> String {
+    match (dias.round() as i64, futuro) {
+        (1, false) => "no último dia".into(),
+        (1, true) => "no próximo dia".into(),
+        (n, false) => format!("nos últimos {n} dias"),
+        (n, true) => format!("nos próximos {n} dias"),
+    }
+}
+
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn periodo_em_palavras() {
+        assert_eq!(periodo(1.0, false), "no último dia");
+        assert_eq!(periodo(1.0, true), "no próximo dia");
+        assert_eq!(periodo(7.0, false), "nos últimos 7 dias");
+        assert_eq!(periodo(16.0, true), "nos próximos 16 dias");
+    }
 
     #[test]
     fn ida_e_volta() {

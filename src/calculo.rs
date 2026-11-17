@@ -123,11 +123,14 @@ fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> S
         1 => "1 delas tem a imagem no Planetary Computer".to_string(),
         n => format!("{n} delas têm a imagem no Planetary Computer"),
     };
-    let mut t = format!("Nos últimos {dias:.0} dias, {passagens} {}; {imagens} (hora local):\n\n", e.nome);
+    // "No último dia" ou "Nos últimos 7 dias", no começo da frase.
+    let periodo = tempo::periodo(dias, false).replacen('n', "N", 1);
+    let mut t = format!("{periodo}, {passagens} {}; {imagens} (hora local):\n\n", e.nome);
     // As de resolução fina uma a uma, das mais novas às mais velhas; as diárias, resumidas.
     let mut ordem: Vec<usize> = (0..todas.len()).collect();
     ordem.sort_by(|&a, &b| todas[b].t.total_cmp(&todas[a].t));
     let mut diarias: Vec<(&str, usize)> = Vec::new();
+    let mut finas = 0;
     for i in ordem {
         let p = &todas[i];
         let Some(g) = gratuitos::de(&p.satelite) else { continue };
@@ -147,6 +150,11 @@ fn relatorio(e: &Entrada, todas: &[Passagem], por_passagem: &[Vec<Imagem>]) -> S
             None => format!("ainda não no Planetary Computer: {}", g.onde),
         };
         t += &format!("- {} · {} · {imagem}\n", tempo::curto(p.t, e.fuso), p.satelite);
+        finas += 1;
+    }
+    // Sem nenhuma de resolução fina, a lista acima ficava vazia (uma linha em branco).
+    if finas == 0 {
+        t += "Nenhuma passagem de resolução fina (Sentinel-1 e 2, Landsat, CBERS, Amazonia-1) no período.\n";
     }
     if !diarias.is_empty() {
         let lista: Vec<String> = diarias.iter().map(|(s, n)| format!("{s} {n}×")).collect();
@@ -175,6 +183,29 @@ pub fn satelite_legivel(id: &str) -> String {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn relatorio_sem_passagens_de_resolucao_fina() {
+        let t0 = tempo::ler("2026-11-09T00:00:00Z").unwrap();
+        let e = Entrada {
+            gp: &[],
+            imagens: &[],
+            lon: -42.87,
+            lat: -20.75,
+            t0,
+            t1: t0 + 7.0 * 86_400.0,
+            fuso: -3.0 * 3600.0,
+            nome: "Viçosa",
+            nuvem_agora: None,
+            orbitas: "de teste",
+        };
+        let r = calcular(&e).relatorio;
+        assert!(r.starts_with("Nos últimos 7 dias, 0 passagens"), "{r}");
+        assert!(r.contains("Nenhuma passagem de resolução fina"), "{r}");
+        assert!(!r.contains("\n\n\n"), "{r}");
+        let um_dia = calcular(&Entrada { t1: t0 + 86_400.0, ..e }).relatorio;
+        assert!(um_dia.starts_with("No último dia, "), "{um_dia}");
+    }
 
     #[test]
     fn nomes_e_linhas() {

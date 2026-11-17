@@ -200,7 +200,8 @@ fn no_painel(r: Result<Value, String>) -> Result<Value, String> {
     let mut r = match r {
         Ok(r) => r,
         Err(e) => {
-            let _ = host::call("host.notify", json!({"text": format!("Passagens: {e}"), "error": true}));
+            // O RustGIS já põe o nome do plugin na frente ("Passagens de satélites: …").
+            let _ = host::call("host.notify", json!({"text": e, "error": true}));
             return Ok(json!({"report": format!("Erro: {e}"), "panel": {"items": {"resultado": {"text": format!("Erro: {e}")}}}}));
         }
     };
@@ -701,16 +702,19 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
     };
     let t0 = agora - dias * 86_400.0;
 
-    // As imagens do lugar no Planetary Computer, uma por dia.
+    // As imagens do lugar no Planetary Computer, uma por dia: as `ITENS` cenas mais recentes.
     let r = host::run(
         "stac.search",
         json!({"url": STAC, "collections": ["sentinel-2-l2a"], "bbox": [lon - 0.0005, lat - 0.0005, lon + 0.0005, lat + 0.0005],
-               "datetime": format!("{}/{}", tempo::dia(t0), tempo::dia(agora)), "limit": 200, "sortby": "-datetime", "footprints": false}),
+               "datetime": format!("{}/{}", tempo::dia(t0), tempo::dia(agora)), "limit": galeria::ITENS, "sortby": "-datetime", "footprints": false}),
     )?;
     if esperando(&r) {
         return Ok(json!({"pending": true}));
     }
-    let imgs = galeria::uma_por_dia(imagens::ler(&r));
+    let itens = imagens::ler(&r);
+    // Com a busca cheia, o período pedido tem mais cenas: a lista começa na mais velha lida.
+    let desde = (itens.len() >= galeria::ITENS).then(|| itens.iter().map(|i| i.t).fold(f64::INFINITY, f64::min));
+    let imgs = galeria::uma_por_dia(itens);
     if imgs.is_empty() {
         return Err(format!("o Planetary Computer não tem imagens do Sentinel-2 de {nome} nos últimos {dias:.0} dias"));
     }
@@ -775,7 +779,7 @@ fn imagens_do_lugar(req: &Request) -> Result<Value, String> {
             .collect())
     };
     let do_dia = |n: &str, dia: &str| nomes::data_do_cubo(n, &camada) == Some(dia);
-    let mut relatorio = galeria::relatorio(&nome, dias, &datas, fuso, calculo::satelite_legivel);
+    let mut relatorio = galeria::relatorio(&nome, dias, desde, &datas, fuso, calculo::satelite_legivel);
     if limpas.is_empty() {
         relatorio += "\nNenhuma das datas conferidas tem o céu limpo no lugar: rode de novo com mais dias.";
         return Ok(json!({"report": relatorio}));
